@@ -1,0 +1,349 @@
+[
+ {
+  "chapter": "endgame",
+  "name": "马炮仕胜单缺象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/2b6/9/9/9/4C4/7N1/9/3AKA2 r",
+  "hint": "马炮借仕为架牵制士象，先迫孤象归边，再破象擒王。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车兵胜马单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/2n6/9/4P4/9/9/9/R8/3K5 r",
+  "hint": "车占肋道捉马，兵逼九宫换士，孤马失援即擒。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马兵胜单象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "4k4/9/2b6/9/4P4/9/9/7N1/9/4K4 r",
+  "hint": "兵换象或马控将位，孤象难挡马兵联攻。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双兵胜单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/9/9/4P4/3P5/9/9/9/4K4 r",
+  "hint": "一高一低双兵携手，低兵换士、高兵贴将即胜。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮胜单马",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "4k4/9/2n6/9/9/9/4C4/7N1/9/4K4 r",
+  "hint": "炮镇中路牵制，马跃卧槽，孤马兑炮后光将难守。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车仕胜马单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/2n6/9/9/9/9/4A4/R8/4K4 r",
+  "hint": "车借仕力逐马于边线，回头破士即胜。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮仕胜单缺士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/9/5a3/9/9/9/4C4/4A4/7N1/4K4 r",
+  "hint": "炮镇中路牵制单士，马换象或破士，两翼皆失。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马双兵胜单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/9/9/4P4/3P5/9/7N1/9/4K4 r",
+  "hint": "马控将门，双兵逼宫换士，孤士难以两全。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车兵胜炮单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/2c6/9/4P4/9/9/9/R8/3K5 r",
+  "hint": "车占肋道捉炮，兵入九宫换士，炮无藏身即败。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马兵胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/4P4/9/9/7N1/9/4K4 r",
+  "hint": "马控将门、兵换士，双士联防也被各个击破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮双仕胜单士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3ak4/9/9/9/9/9/4C4/4A4/3A5/4K4 r",
+  "hint": "双仕连环为炮架，孤士动弹不得，炮镇中路即成杀。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮仕胜光将",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "4k4/9/9/9/9/9/4C4/4A4/7N1/4K4 r",
+  "hint": "马炮联攻借仕架成马后炮，光将无处可躲。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单马和单炮",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "4k4/9/2n6/9/9/9/4C4/9/9/4K4 r",
+  "hint": "你执黑：马走闲牵制，炮无仕相为架不能成杀。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单兵和单士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3ak4/9/9/9/4P4/9/9/9/9/4K4 r",
+  "hint": "你执黑：士在将前走闲，单兵无仕相助难破单士。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单炮和双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/9/9/4C4/9/9/4K4 r",
+  "hint": "你执黑：双士联防走闲，炮无架不能成杀。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双兵和士象全",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/4P4/5P3/9/9/9/4K4 r",
+  "hint": "你执黑：士象全守中路，双兵难破联防。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮胜士象全",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/9/9/4C4/7N1/9/4K4 r",
+  "hint": "炮镇中路、马卧槽，士象不全防马炮冷着。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车马胜士象全",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/9/9/2N6/9/R8/3K5 r",
+  "hint": "车马冷着借帅力破士象，各个击破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮兵仕胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/4P4/9/1C7/4A4/9/4K4 r",
+  "hint": "炮借仕架镇中，兵入九宫换士，双士联防也必破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮双兵胜单缺象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/2b6/9/4P4/5P3/1C7/9/9/4K4 r",
+  "hint": "炮镇中路牵制，双兵渡河东进，先破孤象再破士。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮兵仕胜单象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "4k4/9/2b6/9/4P4/9/1C7/4A4/9/4K4 r",
+  "hint": "兵逼将位，炮借仕架打象，孤象必失。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车兵胜双象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/9/9/9/4P4/9/9/9/R8/3K5 r",
+  "hint": "车占中路，兵入九宫换象，孤象必失。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮仕胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/9/9/4C4/4A4/7N1/4K4 r",
+  "hint": "炮借仕架镇中，马绕肋道挂角，双士顾此失彼。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单马和双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/9/9/9/7N1/9/3K5 r",
+  "hint": "你执黑：双士在将前联防，单马无炮架难困毙。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马和炮双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/4c4/9/9/9/9/7N1/9/3K5 r",
+  "hint": "你执黑：炮镇中路、双士联防，马无炮架难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单马和士象全",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/9/9/9/7N1/9/3K5 r",
+  "hint": "你执黑：士象全正位，单马难困毙。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "兵仕和双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/4P4/9/9/4A4/9/4K4 r",
+  "hint": "你执黑：双士联防将前，单兵借仕也难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "兵和炮双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/4c4/9/4P4/9/9/9/9/3K5 r",
+  "hint": "你执黑：炮镇中路、双士联防，孤兵难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马和炮单士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3ak4/9/2c6/9/9/9/9/7N1/9/3K5 r",
+  "hint": "你执黑：炮护士角、将走闲，单马难擒炮士。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双兵和炮士象全",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/1c7/9/4P4/5P3/9/9/9/3K5 r",
+  "hint": "你执黑：炮守中路、士象联防，双兵难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双马和炮士象全",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/1c7/9/9/9/2N6/7N1/9/3K5 r",
+  "hint": "你执黑：炮守中路、士象联防，双马难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单兵和单马",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "4k4/9/2n6/9/4P4/9/9/9/9/3K5 r",
+  "hint": "你执黑：马走闲牵制，孤兵无后援难胜马。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "低兵和双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/5P3/9/9/9/9/9/9/9/3K5 r",
+  "hint": "你执黑：低兵已到底线无力，双士联防走闲即和。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单炮和双象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/9/9/9/9/9/4C4/9/9/3K5 r",
+  "hint": "你执黑：双象连环守中路，炮无仕相为架难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单马和双象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/9/9/9/9/9/9/7N1/9/3K5 r",
+  "hint": "你执黑：双象连环走闲，单马无炮架难困毙。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马炮胜单象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "4k4/9/2b6/9/9/9/4C4/7N1/9/4K4 r",
+  "hint": "炮镇中路牵制，马卧槽赶象，孤象必失。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "马双兵胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/4P4/3P5/9/7N1/9/4K4 r",
+  "hint": "马控将门、双兵逼宫，换士后成杀。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车仕胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/9/9/9/4A4/R8/4K4 r",
+  "hint": "车借仕力占肋沉底，双士联防亦破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "低兵和单缺象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1ka3/5P3/9/9/9/9/9/9/9/3K5 r",
+  "hint": "你执黑：低兵已无力换士，士象联防固守即和。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单兵和双象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/9/9/9/4P4/9/9/9/9/3K5 r",
+  "hint": "你执黑：双象连环守中，孤兵无后援难破。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "低兵和炮双士",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "3aka3/9/4c4/5P3/9/9/9/9/9/3K5 r",
+  "hint": "你执黑：炮镇中路、双士联防，低兵无力换士。"
+ }
+]

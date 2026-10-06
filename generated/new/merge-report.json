@@ -1,0 +1,21 @@
+{
+ "kept": 59,
+ "cnt": {
+  "mate1": 7,
+  "mate2": 20,
+  "mate3": 9,
+  "mate4": 4,
+  "mate5p": 2,
+  "endgame-win": 12,
+  "endgame-draw": 5
+ },
+ "total": 458,
+ "drop": [],
+ "dup": [
+  {
+   "name": "拔簧马·三",
+   "tag": "杀局",
+   "with": "拔簧马·二"
+  }
+ ]
+}

@@ -1,0 +1,52 @@
+{
+  "perShard": {
+    "shard-mate1.json": {
+      "pass": 42,
+      "total": 42
+    },
+    "shard-mate2.json": {
+      "pass": 41,
+      "total": 41
+    },
+    "shard-mate3.json": {
+      "pass": 43,
+      "total": 43
+    },
+    "shard-mate4.json": {
+      "pass": 22,
+      "total": 22
+    },
+    "shard-mate5p.json": {
+      "pass": 0,
+      "total": 3
+    }
+  },
+  "drops": [
+    {
+      "shard": "shard-mate5p.json",
+      "index": 1,
+      "name": "三骑闹宫",
+      "mate": 5,
+      "fen": "4k4/4a2NR/4b4/4N4/2b3b2/9/9/9/9/3K5 r",
+      "drop": "最短杀=4<标注5"
+    }
+  ],
+  "inconclusive": [
+    {
+      "shard": "shard-mate5p.json",
+      "index": 0,
+      "name": "双马炮杀",
+      "mate": 6,
+      "fen": "4k4/9/b3Na3/9/2N3C2/9/9/9/9/3K5 r",
+      "note": "求解预算耗尽(不确定)"
+    },
+    {
+      "shard": "shard-mate5p.json",
+      "index": 2,
+      "name": "双车兵杀",
+      "mate": 5,
+      "fen": "2Rak4/4a4/4ba3/2P6/6b1R/9/9/9/9/3K5 r",
+      "note": "求解预算耗尽(不确定)"
+    }
+  ]
+}

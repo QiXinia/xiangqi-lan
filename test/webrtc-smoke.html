@@ -1,0 +1,178 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>rtc-smoke</title>
+<style>body{font-family:monospace;padding:10px;white-space:pre-wrap;font-size:13px}</style></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+import { HostSignaler, GuestSignaler } from '../js/net-peer.js';
+import { HostRoom, GuestRoom } from '../js/room.js';
+import { legalMoves } from '../js/engine.js';
+
+const log = [];
+let pass = 0, fail = 0;
+function flush() { document.getElementById('out').textContent = log.join('\n'); }
+function ok(cond, msg) { if (cond) { pass++; log.push('PASS ' + msg); } else { fail++; log.push('FAIL ' + msg); } flush(); }
+function step(msg) { log.push('… ' + msg); flush(); }
+function waitEvent(room, type, timeout = 8000, pred = null) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error('wait ' + type + ' timeout')), timeout);
+    room.onEvent(ev => {
+      if (ev.type === type && (!pred || pred(ev))) { clearTimeout(t); res(ev); }
+    });
+  });
+}
+async function connect(name, want, cfg) {
+  const hs = new HostSignaler({ name: '红方', cfg });
+  const slot = await hs.createSlot();
+  const gs = new GuestSignaler({ name, want });
+  const res = await gs.acceptOffer(slot.offer);
+  await hs.feedAnswer(res.answer);
+  const ready = await Promise.race([
+    Promise.all([slot.transport.ready, res.transport.ready]),
+    new Promise(r => setTimeout(() => r(false), 8000))
+  ]);
+  if (!ready) throw new Error('datachannel open timeout');
+  return { hostTransport: slot.transport, guestTransport: res.transport };
+}
+function posSig(state) {
+  return state.pieces ? null : state.board.map((row, y) => row.map((p, x) => p ? `${x},${y},${p.c}${p.hidden ? '~' : p.t}` : '').filter(Boolean)).flat().join('|');
+}
+function boardSig(state) {
+  const s = [];
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 9; x++) {
+    const p = state.board[y][x]; if (p) s.push(`${x},${y},${p.c}${p.hidden ? '~' : p.t}`);
+  }
+  return s.join('|');
+}
+async function playJieqiPair(host, guest, steps) {
+  for (let i = 0; i < steps; i++) {
+    const side = host.state.turn;
+    if (side === 'r') {
+      const mv = legalMoves(host.state)[0];
+      const r = host.localMove(mv.from, mv.to);
+      if (r.pending) await waitEvent(host, 'move', 5000, e => e.side === 'r');
+    } else {
+      const gMv = legalMoves(guest.state)[0];
+      const r = guest.localMove(gMv.from, gMv.to);
+      if (r.illegal) throw new Error('guest illegal');
+      await waitEvent(guest, 'move', 5000, e => e.side === 'b');
+    }
+    if (host.state.status !== 'playing') break;
+  }
+}
+
+try {
+  const cfg = { jieqi: false, time: '10+3' };
+  // ---------- A. 经典对战 ----------
+  const host = new HostRoom({ name: '红方', rules: cfg });
+  let challengeP = waitEvent(host, 'challenge');
+  const c1 = await connect('黑方', 'play', cfg);
+  const hostId = host.addTransport(c1.hostTransport);
+  const guest = new GuestRoom(c1.guestTransport, { name: '黑方', want: 'play' });
+  const ch = await challengeP;
+  ok(ch.name === '黑方' && ch.want === 'play', 'A1 host 收到对战 challenge');
+  const startP = waitEvent(guest, 'snapshot', 5000, e => e.start);
+  host.acceptJoin(ch.peerId, 'b');
+  await startP;
+  ok(guest.seat === 'b' && guest.state.moves.length === 0, 'A2 guest 进入对局(执黑), 初始局面');
+
+  const m1p = waitEvent(guest, 'move');
+  const r1 = host.localMove([7, 7], [4, 7]);
+  ok(r1.ok && !r1.illegal, 'A3 host 炮二平五 合法');
+  await m1p;
+  ok(guest.state.moves.length === 1 && guest.state.moves[0].notation === '炮二平五', 'A4 guest 收到红方着法 ' + guest.state.moves[0]?.notation);
+
+  const m2p = waitEvent(host, 'move');
+  const r2 = guest.localMove([1, 2], [1, 9]);
+  ok(r2.ok, 'A5 guest 炮2进7 吃马合法');
+  await m2p;
+  ok(host.state.moves.length === 2 && !!host.state.moves[1].captured, 'A6 host 应用黑方着法(吃马)');
+
+  const m3p = waitEvent(guest, 'move');
+  host.localMove([7, 9], [6, 7]);
+  await m3p;
+  ok(guest.state.moves.length === 3, 'A7 guest 同步第 3 手');
+
+  // 聊天
+  const chatP = waitEvent(host, 'chat');
+  guest.sendChat('好棋');
+  const chat = await chatP;
+  ok(chat.text === '好棋' && chat.name === '黑方', 'A8 host 收到聊天');
+
+  // 悔棋(guest 发起, host 同意)
+  const undoP = waitEvent(guest, 'snapshot');
+  guest.undoReq();
+  const up = await waitEvent(host, 'undoPending');
+  ok(up.name === '黑方', 'A9 host 收到悔棋请求');
+  host.replyUndo(true);
+  await undoP;
+  ok(host.state.moves.length === 0 && guest.state.moves.length === 0, 'A10 双方悔棋回到初始');
+
+  // 认输
+  const endHp = waitEvent(host, 'end');
+  const endGp = waitEvent(guest, 'end');
+  guest.resign();
+  const [eh, eg] = await Promise.all([endHp, endGp]);
+  ok(eh.status === 'redwin' && eh.reason === 'resign' && eg.status === 'redwin', 'A11 黑方认输, 双方终局 redwin/resign');
+
+  // ---------- B. 观战者(新房间) ----------
+  const cfg2 = { jieqi: false, time: 'none' };
+  const host2 = new HostRoom({ name: '房主', rules: cfg2 });
+  // B1: 开局前观战者先加入
+  const chSp = waitEvent(host2, 'challenge');
+  const cS = await connect('观战甲', 'watch', cfg2);
+  host2.addTransport(cS.hostTransport);
+  const spec = new GuestRoom(cS.guestTransport, { name: '观战甲', want: 'watch' });
+  const chS = await chSp;
+  host2.acceptJoin(chS.peerId, 'spec');
+  // B2: 黑方入座, 开局; 观战者应随开局收到 snapshot
+  const chBp = waitEvent(host2, 'challenge');
+  const cB = await connect('对手乙', 'play', cfg2);
+  host2.addTransport(cB.hostTransport);
+  const gB = new GuestRoom(cB.guestTransport, { name: '对手乙', want: 'play' });
+  const chB = await chBp;
+  const gStart = waitEvent(gB, 'snapshot', 5000, e => e.start);
+  const specStart = waitEvent(spec, 'snapshot', 5000);
+  host2.acceptJoin(chB.peerId, 'b');
+  await Promise.all([gStart, specStart]);
+  ok(gB.seat === 'b' && spec.seat === 'spec', 'B1 开局前观战者在开局时收到局面, 黑方入座');
+  // B3: 开局后再加入一位观战者(房间自动接纳, 不弹 challenge)
+  const cS2 = await connect('观战乙', 'watch', cfg2);
+  host2.addTransport(cS2.hostTransport);
+  const spec2Ref = new GuestRoom(cS2.guestTransport, { name: '观战乙', want: 'watch' });
+  await new Promise(r => setTimeout(r, 800));
+  ok(spec2Ref.seat === 'spec' && spec2Ref.state, 'B2 开局后观战者自动入座并收到局面');
+  // B4: 两位观战者都收到实时着法
+  const mvSpec1 = waitEvent(spec, 'move');
+  const mvSpec2 = waitEvent(spec2, 'move');
+  host2.localMove([7, 7], [4, 7]);
+  await Promise.all([mvSpec1, mvSpec2]);
+  ok(spec.state.moves.length === 1 && spec2.state.moves.length === 1, 'B3 两位观战者均收到实时着法');
+  ok(spec.state.board.flat().filter(p => p && p.hidden).length === 0, 'B4 经典局无暗子');
+
+  // ---------- C. 揭棋 ----------
+  const cfgJ = { jieqi: true, time: 'none' };
+  const hJ = new HostRoom({ name: '红方', rules: cfgJ });
+  const chJp = waitEvent(hJ, 'challenge');
+  const cJ = await connect('黑方', 'play', cfgJ);
+  hJ.addTransport(cJ.hostTransport);
+  const gJ = new GuestRoom(cJ.guestTransport, { name: '黑方', want: 'play' });
+  const chJ = await chJp;
+  const jStart = waitEvent(gJ, 'snapshot', 8000, e => e.start);
+  hJ.acceptJoin(chJ.peerId, 'b');
+  await jStart;
+  ok(hJ.started && gJ.state, 'C1 揭棋 commit-reveal 握手完成并开局');
+  ok(hJ.state.pieces ? false : hJ.state.board.flat().filter(p => p && p.hidden).length === 30, 'C2 双方各 15 暗子(将/帅明置)');
+  await playJieqiPair(hJ, gJ, 6);
+  ok(hJ.state.moves.length === gJ.state.moves.length && hJ.state.moves.length >= 6, 'C3 揭棋交替走子 6 手, 双方手数一致(' + hJ.state.moves.length + ')');
+  ok(boardSig(hJ.state) === boardSig(gJ.state), 'C4 双方棋盘棋子位置/明暗一致');
+  // 信息隔离: host 不应知道红方暗子排列, guest 不应知道黑方排列
+  const hostSeesRedPerm = Object.values(hJ.state.initialPerms.r || {}).some(v => v !== '?');
+  const guestSeesBlackPerm = Object.values(gJ.state.initialPerms.b || {}).some(v => v !== '?');
+  ok(!hostSeesRedPerm && !guestSeesBlackPerm, 'C5 暗子排列信息隔离(host 不知红方, guest 不知黑方)');
+
+  log.push('\n==== ' + pass + ' passed, ' + fail + ' failed ====');
+} catch (e) {
+  fail++; log.push('ERROR: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n'));
+}
+document.getElementById('out').textContent = log.join('\n');
+document.title = 'RTC ' + pass + '/' + (pass + fail) + (fail ? ' FAIL' : ' OK');
+</script></body></html>

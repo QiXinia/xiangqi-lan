@@ -1,0 +1,76 @@
+[
+ {
+  "chapter": "endgame",
+  "name": "单车胜单缺象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3akab2/9/9/9/9/9/9/9/R8/3K5 r",
+  "hint": "车借帅力各个击破，先捉孤象、再破双士，单缺象难守单车。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "单车胜单缺士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/4a4/9/9/9/9/9/9/R8/4K4 r",
+  "hint": "车先破单士、再逐双象，帅占中路，单缺士必失。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双车胜士象全",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/9/9/9/R8/9/R2K5 r",
+  "hint": "双车胁士、硬砍花心，士象全也挡不住双车联攻。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车炮仕胜双士",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3aka3/9/9/9/9/9/9/2C6/4A4/R3K4 r",
+  "hint": "炮借仕架镇中，车占肋道，双士顾此失彼。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "双马胜士象全",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "2bakab2/9/9/9/9/9/9/2N3N2/9/3K5 r",
+  "hint": "双马饮泉，一马换双士或挂角成杀，士象全难守双马。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车兵胜单缺象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3akab2/9/9/9/9/4P4/9/9/9/R3K4 r",
+  "hint": "车占中路、兵入九宫换象，孤象一失防线即崩。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "车炮仕胜单缺象",
+  "type": "win",
+  "drawMoves": 80,
+  "fen": "3akab2/9/9/9/9/9/9/2C6/4A4/R3K4 r",
+  "hint": "炮借仕架牵制，车捉孤象破士，单缺象难守。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮低兵难胜单象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1k4/6P2/9/9/9/9/9/4C4/9/4K4 r",
+  "hint": "你执黑：孤象游走将之另一侧、勿塞炮架，炮低兵无仕难胜，正和。"
+ },
+ {
+  "chapter": "endgame",
+  "name": "炮低兵和双象",
+  "type": "draw",
+  "humanSide": "b",
+  "drawMoves": 80,
+  "fen": "2b1k1b2/6P2/9/9/9/9/9/4C4/9/4K4 r",
+  "hint": "你执黑：双象连环、象走将侧，炮低兵无仕难破，正和。"
+ }
+]

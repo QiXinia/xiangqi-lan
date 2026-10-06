@@ -1,0 +1,196 @@
+{
+ "atk": {
+  "level": 5,
+  "ms": 2500
+ },
+ "def": {
+  "level": 5,
+  "ms": 2000
+ },
+ "attacker": "master",
+ "rep": 1,
+ "total": 12,
+ "pass": 12,
+ "results": [
+  {
+   "id": 270,
+   "name": "二马盘宫·二",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 271,
+   "name": "二马盘宫·三",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "stalemate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 272,
+   "name": "二马追风·三",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 273,
+   "name": "二马追风·四",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 274,
+   "name": "二马追风·五",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "stalemate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 275,
+   "name": "封侯拜爵",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 276,
+   "name": "烽火齐鸣·三",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 10000,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 300,
+   "name": "炮辗丹沙",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "stalemate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 5000,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 301,
+   "name": "炮辗丹沙·二",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 302,
+   "name": "炮辗丹沙·四",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 303,
+   "name": "塞翁失马",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "checkmate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  },
+  {
+   "id": 304,
+   "name": "三进兵·二",
+   "chapter": "classic",
+   "mate": 4,
+   "result": "PASS",
+   "status": "redwin",
+   "reason": "stalemate",
+   "plies": 7,
+   "redMoves": 4,
+   "atkMs": 2500,
+   "reps": [
+    "PASS:4"
+   ]
+  }
+ ]
+}
