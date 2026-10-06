@@ -972,3 +972,124 @@ body[data-theme="ink"] { background: radial-gradient(1200px 800px at 50% -10%, #
   .fx-word, .fx-confetti { display: none; }
 }
 /* ================= [[FX-END]] ================= */
+
+/* ============================================================
+ * [[UI-VER-BEGIN]] 界面版本: 旧版经典皮肤
+ * 触发: <html data-theme="classic">(由 app.js applyUiTheme 设置, 持久化 xq_settings_v1.uiTheme)
+ * 与棋盘配色 body[data-theme=wood/jade/ink] 作用于不同元素, 互不干扰。
+ * 基底 = work-layout 旧简洁观感: 暖纸色、朴素扁平、关闭新增动效/礼花/震动。
+ * 仅表现层, 不改任何对局/联机/AI/残局结构。
+ * ============================================================ */
+/* —— 变量覆盖: 更平、更低饱和的纸面暖调 —— */
+:root[data-theme="classic"] {
+  --paper: #f4ecd9;
+  --paper2: #faf4e6;
+  --card: #fffdf6;
+  --line: rgba(120, 90, 50, .14);
+  --accent: #9a3a22;
+  --gold: #c99a3f;
+  --app-w: 520px;
+}
+
+/* —— 外壳: 桌面端去掉深色径向渐变光晕 —— */
+:root[data-theme="classic"] body {
+  background: var(--paper);
+}
+
+/* —— 大厅 hero: 实色暗红, 去掉金色径向光晕与大圆角阴影 —— */
+:root[data-theme="classic"] .home-hero {
+  background: #8f2c1c;
+  border-radius: 0 0 14px 14px;
+  box-shadow: none;
+}
+:root[data-theme="classic"] .home-hero::after { display: none; }
+:root[data-theme="classic"] .home-badge {
+  box-shadow: none;
+  border-color: rgba(246, 226, 180, .4);
+}
+
+/* —— 卡片/菜单: 扁平, 去投影与渐变图标底 —— */
+:root[data-theme="classic"] .menu-item,
+:root[data-theme="classic"] .card,
+:root[data-theme="classic"] .group,
+:root[data-theme="classic"] .puzzle-cell {
+  box-shadow: none;
+  border-radius: 10px;
+}
+:root[data-theme="classic"] .menu-item { transition: none; }
+:root[data-theme="classic"] .menu-item:active { transform: none; }
+:root[data-theme="classic"] .menu-item .mi-icon { box-shadow: none; }
+:root[data-theme="classic"] .mi-red, :root[data-theme="classic"] .mi-brown,
+:root[data-theme="classic"] .mi-green, :root[data-theme="classic"] .mi-blue,
+:root[data-theme="classic"] .mi-purple, :root[data-theme="classic"] .mi-gray,
+:root[data-theme="classic"] .mi-teal { background: #8a5a2b; }
+
+/* —— 按钮/分段控件: 扁平无投影 —— */
+:root[data-theme="classic"] .btn-primary,
+:root[data-theme="classic"] .btn-cta,
+:root[data-theme="classic"] .ctl-btn.ctl-play { box-shadow: none; }
+:root[data-theme="classic"] .btn { transition: none; }
+:root[data-theme="classic"] .btn:active { transform: none; }
+:root[data-theme="classic"] .seg { background: #e8ddc4; }
+:root[data-theme="classic"] .seg button { transition: none; }
+:root[data-theme="classic"] .seg button.on { box-shadow: none; }
+
+/* —— 走子/吃子/悔棋: 棋子即时归位, 不抬升/飞离/回弹 —— */
+:root[data-theme="classic"] .piece,
+:root[data-theme="classic"] .fx-inner {
+  transition: none !important;
+  animation: none !important;
+}
+:root[data-theme="classic"] .piece.fx-moving .fx-inner,
+:root[data-theme="classic"] .piece.fx-land .fx-inner,
+:root[data-theme="classic"] .piece.fx-captured .fx-inner,
+:root[data-theme="classic"] .piece.fx-ghost .fx-inner {
+  transform: none; opacity: 1;
+}
+:root[data-theme="classic"] .piece.fx-win { filter: none; }
+:root[data-theme="classic"] .piece.fx-lose { opacity: 1; filter: none; }
+
+/* —— 选中/将军圈: 静态高亮, 不脉动/不旋转 —— */
+:root[data-theme="classic"] .sel-ring { animation: none !important; stroke-width: 3.5; }
+:root[data-theme="classic"] .cap-ring { animation: none !important; }
+:root[data-theme="classic"] .check-ring { animation: none !important; }
+:root[data-theme="classic"] .board-root.fx-checkglow .check-ring { stroke-width: 4; filter: none; }
+
+/* —— 将军/绝杀/和棋特效层: 全部关闭(浮字/放射/礼花/闪光/震动) —— */
+:root[data-theme="classic"] .board-root.fx-shake { animation: none !important; }
+:root[data-theme="classic"] .fx-end,
+:root[data-theme="classic"] .fx-word,
+:root[data-theme="classic"] .fx-rays,
+:root[data-theme="classic"] .fx-rays i,
+:root[data-theme="classic"] .fx-confetti,
+:root[data-theme="classic"] .fx-confetti i,
+:root[data-theme="classic"] .fx-flash { display: none !important; animation: none !important; }
+
+/* —— 导航栈: 去掉滑屏, 直接切页(旧版朴素) —— */
+:root[data-theme="classic"] .screen.nav-fade,
+:root[data-theme="classic"] .screen.nav-enter-fwd,
+:root[data-theme="classic"] .screen.nav-enter-back,
+:root[data-theme="classic"] .screen.nav-leave-fwd,
+:root[data-theme="classic"] .screen.nav-leave-back { animation: none !important; }
+
+/* —— 弹窗/浮层: 去掉弹入/上滑, 直接出现 —— */
+:root[data-theme="classic"] .modal, :root[data-theme="classic"] .sheet,
+:root[data-theme="classic"] .mask, :root[data-theme="classic"] .toast { animation: none !important; }
+
+/* —— 交接遮罩: 去掉上下浮动脉冲, 保持静态 —— */
+:root[data-theme="classic"] .pass-card { animation: none !important; }
+:root[data-theme="classic"] .pass-card.pass-flip { animation: none !important; }
+
+/* —— 残局进度/分析条: 扁平渐变改实色 —— */
+:root[data-theme="classic"] .pz-summary { box-shadow: none; }
+:root[data-theme="classic"] .an-start { box-shadow: none; }
+
+/* —— 新元素兜底(方向4 xq-* 按钮/联机 net-* 状态): 旧版下统一朴素, 不裸露错位 —— */
+:root[data-theme="classic"] .xq-btn,
+:root[data-theme="classic"] .xq-offer-bar,
+:root[data-theme="classic"] .net-status {
+  border-radius: 10px;
+  box-shadow: none;
+  transition: none;
+}
+/* ================= [[UI-VER-END]] ================= */

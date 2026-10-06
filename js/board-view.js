@@ -32,7 +32,9 @@ export class BoardView {
     this._build();
   }
   _reduced() {
-    return typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+    // 旧版经典皮肤: 关闭走子/将军/绝杀动效, 棋子即时归位、终局直接弹窗(朴素反馈)
+    try { return document.documentElement.dataset.theme === 'classic'; } catch (e) { return false; }
   }
   el(tag, attrs = {}, parent) {
     const e = document.createElementNS(SVGNS, tag);
@@ -559,4 +561,15 @@ export class BoardView {
     this._endTimer = setTimeout(() => { ov.remove(); this._clearEndPieceFx(); }, dur + 400);
     return dur;
   }
+
+  // ============================================================
+  // 对外动画 API(供 controller 在将军/终局处一行调用; classic 主题自动静默为朴素反馈)
+  // ============================================================
+  // 走子/悔棋过渡: 棋子滑动与起落由 render() 自动驱动, 这里仅作显式钩子(可空播/补 lift)。
+  // 返回建议等待 ms, 0 表示无需等待。
+  playMoveAnim(/* from, to */) { return this._reduced() ? 0 : 320; }
+  // 将军动画: 棋盘轻震 + 「将军」浮字 + 帅位红圈增强(边沿一次)
+  playCheckAnim(side) { if (this._reduced()) return 0; this.setCheck(side); return 1100; }
+  // 绝杀/和棋/困毙终局动画: 放射爆发+浮字+礼花(胜)/中性脉冲; 返回建议弹窗延迟 ms
+  playMateAnim(grade = 'mate') { return this.playEnd(grade); }
 }

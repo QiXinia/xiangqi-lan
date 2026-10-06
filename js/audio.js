@@ -36,6 +36,7 @@ function noise({ dur = 0.06, gain = 0.12, freq = 1200, delay = 0 }) {
 }
 export const sfx = {
   tap() { tone({ freq: 320, dur: 0.03, type: 'triangle', gain: 0.08 }); },
+  button() { tone({ freq: 340, dur: 0.035, type: 'triangle', gain: 0.07 }); },
   move() { noise({ dur: 0.05, gain: 0.15, freq: 900 }); tone({ freq: 180, dur: 0.07, type: 'sine', gain: 0.12, slideTo: 120 }); },
   capture() { noise({ dur: 0.09, gain: 0.2, freq: 500 }); tone({ freq: 140, dur: 0.12, type: 'sine', gain: 0.18, slideTo: 80 }); },
   flip() { noise({ dur: 0.12, gain: 0.1, freq: 2400 }); },

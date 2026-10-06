@@ -6,8 +6,21 @@ import { HostSignaler, GuestSignaler } from './net-peer.js';
 import { HostRoom, GuestRoom } from './room.js';
 import { encodeFrames, decodeSignal, FrameReader } from './net-codec.js';
 import { FramePlayer, QrScanner, renderQR } from './qrcode-ui.js';
+import { XQNetDiscovery, xqNetDiscoverSupported } from './net-discover.js';
 import { modal, toast, h, navBar, closeModal } from './ui.js';
 import { sfx } from './audio.js';
+
+// 信令协议版本: 跨设备扫码交换时若对端版本不符, 明确提示而非静默卡死
+const XQNET_PROTO_V = 1;
+// 把一组信令帧拼成完整 payload(复用 FrameReader), 失败返回 null
+function assembleFrames(reader, frames) {
+  let payload = null;
+  for (const f of frames) {
+    if (!reader.isFrame(f)) continue;
+    payload = reader.add(f) || payload;
+  }
+  return payload;
+}
 
 const TIME_LABEL = { none: '不限时', '5': '5分钟包干', '10': '10分钟包干', '20': '20分钟包干', '5+3': '5分+3秒', '10+3': '10分+3秒', '10+30s': '10分+30秒读秒' };
 
@@ -32,6 +45,19 @@ export async function hostPairFlow(root, { name, cfg, onEnter, onBack }) {
   let room = null;
   let player = null, scanner = null, reader = new FrameReader();
   let connected = 0;
+  let currentOfferFrames = null;   // 当前邀请帧, 供同设备标签索要时推送
+  // 同设备(同浏览器)多标签发现: 若支持, 自动广播房间存在; 不支持则静默降级为纯扫码
+  const disco = xqNetDiscoverSupported() ? new XQNetDiscovery() : null;
+  if (disco) {
+    disco.onAnswer = ({ frames }) => {
+      const payload = assembleFrames(new FrameReader(), frames);
+      if (payload) onAnswer(payload).catch(() => { });
+    };
+    disco.onOfferRequest = (guestId) => {
+      if (currentOfferFrames) disco.pushOffer(guestId, { hostName: name, cfg, frames: currentOfferFrames });
+    };
+    disco.becomeHost({ hostName: name, cfg, roomCode: null });
+  }
 
   root.appendChild(navBar({
     title: '创建对局房间', backLabel: '大厅',
@@ -77,6 +103,7 @@ export async function hostPairFlow(root, { name, cfg, onEnter, onBack }) {
   async function addSlot() {
     const { slot, transport, offer } = await signaler.createSlot();
     const frames = encodeFrames(offer);
+    currentOfferFrames = frames;
     document.getElementById('host-offer-text').value = frames.join('\n');
     if (player) player.stop();
     player = new FramePlayer(document.getElementById('host-qr'), frames, { interval: 320 });
@@ -89,9 +116,14 @@ export async function hostPairFlow(root, { name, cfg, onEnter, onBack }) {
   }
 
   async function onAnswer(payload) {
-    const answer = decodeSignal(payload);
-    if (answer.kind !== 'xq-answer') throw new Error('信令类型不符');
-    const transport = await signaler.feedAnswer(answer);
+    let answer;
+    try { answer = decodeSignal(payload); }
+    catch (e) { toast('回答信令解析失败: 二维码不完整或已损坏'); return false; }
+    if (answer.kind !== 'xq-answer') { toast('不是有效的回答信令(类型不符)'); return false; }
+    if (answer.v !== XQNET_PROTO_V) { toast('回答信令版本不符: 请双方更新到同一版本后重试'); return false; }
+    let transport;
+    try { transport = await signaler.feedAnswer(answer); }
+    catch (e) { toast('接受回答失败: ' + e.message); return false; }
     const ok = await Promise.race([
       transport.ready,
       new Promise(r => setTimeout(() => r(false), 8000))
@@ -154,7 +186,7 @@ export async function hostPairFlow(root, { name, cfg, onEnter, onBack }) {
   function cleanup(cb, keep) {
     if (player) player.stop();
     if (scanner) scanner.stop();
-    if (!keep) signaler.closeAll();
+    if (!keep) { signaler.closeAll(); try { disco && disco.leave(); } catch (e) { } }
     if (cb) cb();
   }
   window._xqPairCleanup = () => cleanup(null);
@@ -174,10 +206,41 @@ export async function guestPairFlow(root, { name, want, onEnter, onBack }) {
   root.appendChild(wrap);
   let signaler = null, scanner = null, room = null, answered = false;
   let connectTimer = null, player = null, left = false;
+  let bcHostId = null;   // 若本次邀请来自同设备标签, 应答帧经 BC 回传
   const offerReader = new FrameReader();
+  // 同设备发现: 列出本浏览器其他标签页已开的房间, 点选即免扫码加入
+  const disco = xqNetDiscoverSupported() ? new XQNetDiscovery() : null;
+  const sameList = h('div', { class: 'net-samelist', style: 'display:none;margin-top:10px' });
+  if (disco) {
+    disco.onRoomList = (list) => {
+      sameList.innerHTML = '';
+      if (!list.length) { sameList.style.display = 'none'; return; }
+      sameList.style.display = '';
+      sameList.appendChild(h('div', { class: 'field-label' }, [h('span', {}, '同设备')]));
+      for (const h of list) {
+        sameList.appendChild(h('button', {
+          class: 'list-row', style: 'text-align:left',
+          onclick: () => { bcHostId = h.hostId; disco.requestOffer(h.hostId); toast('正在向同设备房间请求邀请…'); }
+        }, [
+          h('div', { style: 'flex:1' }, [
+            h('div', { style: 'font-weight:700;font-size:14.5px' }, (h.hostName || '房主') + ' 的房间'),
+            h('div', { class: 'muted', style: 'margin-top:2px' }, '同浏览器标签 · 免扫码直连')
+          ]),
+          h('span', { class: 'lr-chevron' }, '›')
+        ]));
+      }
+    };
+    disco.onOffer = ({ frames }) => {
+      const payload = assembleFrames(offerReader, frames);
+      if (payload) onOffer(payload, { fromBC: true }); else toast('同设备邀请帧不完整');
+    };
+    disco.becomeGuest();
+  }
 
   const scanView = h('div', {}, [
     stepHead(1, want === 'watch' ? '扫描房主二维码以观战' : '扫描房主二维码加入对战'),
+    (() => { const d = h('div', { class: 'net-samenote muted', style: 'font-size:12px;margin:2px 2px 0' }, '同设备多开? 下方会自动列出本浏览器已开的房间; 跨设备请扫码或粘贴房主邀请信令'); return d; })(),
+    sameList,
     h('div', { class: 'qr-stage scan-stage', style: 'margin-top:10px' }, h('div', { class: 'scan-video-wrap' }, [
       h('video', { class: 'scan-video', id: 'guest-video', playsinline: '', muted: '' }),
       h('div', { class: 'scan-frame' }),
@@ -228,11 +291,13 @@ export async function guestPairFlow(root, { name, want, onEnter, onBack }) {
   ]);
   wrap.append(scanView, answerView);
 
-  async function onOffer(payload) {
+  async function onOffer(payload, { fromBC = false } = {}) {
     if (answered) return;
     let offer;
-    try { offer = decodeSignal(payload); } catch (e) { toast('邀请信令解析失败'); return; }
-    if (offer.kind !== 'xq-offer') { toast('不是有效的房间邀请'); return; }
+    try { offer = decodeSignal(payload); } catch (e) { toast('邀请信令解析失败: 二维码不完整或已损坏'); return; }
+    if (offer.kind !== 'xq-offer') { toast('不是有效的房间邀请(类型不符)'); return; }
+    if (offer.v !== XQNET_PROTO_V) { toast('邀请信令版本不符: 请双方更新到同一版本后重试'); return; }
+    if (!fromBC) bcHostId = null;   // 扫码/粘贴路径 -> 应答走二维码; BC 路径 -> 走标签中继
     answered = true;
     signaler = new GuestSignaler({ name, want });
     let res;
@@ -245,6 +310,7 @@ export async function guestPairFlow(root, { name, want, onEnter, onBack }) {
     scanView.style.display = 'none'; answerView.style.display = '';
     const frames = encodeFrames(res.answer);
     document.getElementById('guest-answer-text').value = frames.join('\n');
+    if (bcHostId && disco) disco.deliverAnswer(bcHostId, frames);  // 同设备: 应答帧经 BC 直达房主标签
     player = new FramePlayer(document.getElementById('guest-qr'), frames, { interval: 320 });
     player.onTick = (i, total) => {
       document.getElementById('guest-qr-cap').textContent = `等待房主扫描 (${i}/${total})`;
@@ -303,6 +369,7 @@ export async function guestPairFlow(root, { name, want, onEnter, onBack }) {
     if (!keep) {
       if (signaler) signaler.close();
       if (room && typeof room.destroy === 'function') { try { room.destroy(); } catch (e) { } }
+      try { disco && disco.leave(); } catch (e) { }
     }
     if (cb) cb();
   }

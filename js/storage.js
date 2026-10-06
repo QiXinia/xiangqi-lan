@@ -34,7 +34,8 @@ export const store = {
   },
 
   // 设置
-  settings: () => safeGet(K_SET, { sound: true, theme: 'wood', name: '棋友', aiLevel: 3, aiStyle: 'balance', aiEngine: 'classic' }),
+  // uiTheme: 界面版本 'new'(现代,默认) | 'classic'(旧版朴素皮肤); 仅表现层, 不影响对局/AI/残局
+  settings: () => safeGet(K_SET, { sound: true, theme: 'wood', name: '棋友', aiLevel: 3, aiStyle: 'balance', aiEngine: 'classic', uiTheme: 'new' }),
   saveSettings(patch) { safeSet(K_SET, { ...safeGet(K_SET, {}), ...patch }); },
 
   // AI 复盘分析缓存 { [recordId]: report }

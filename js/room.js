@@ -62,14 +62,19 @@ export class HostRoom {
     this.drawPending = false;
     this.offlineMs = 90000;
     this._idc = 0;
+    this._tokenSeq = 0;
     this.dead = false;
   }
   onEvent(cb) { this.evt.push(cb); }
   emit(type, data = {}) { if (this.dead) return; for (const cb of this.evt) cb({ type, ...data }); }
   nextId() { return 'p' + (++this._idc); }
-  // 房主主动离开/会话销毁: 摘除所有 peer 传输回调与监听, 此后 close/消息不再驱动对局
+  // 重连确定性令牌: 与具体 WebRTC 连接解耦, 由 guest 持久缓存, 断线重扫后凭它找回原席位
+  _issueToken() { return 'tok' + (++this._tokenSeq) + '_' + Math.random().toString(36).slice(2, 8); }
+  // 房主主动离开/会话销毁: 先通知所有 peer "我是主动离开"(供其区分 离开/掉线),
+  // 再摘除所有 peer 传输回调与监听, 此后 close/消息不再驱动对局
   destroy() {
     this.dead = true;
+    this.broadcast({ type: 'bye', reason: 'host-left' });
     for (const p of this.peers.values()) {
       try { if (p.transport) { p.transport.onMessage = null; p.transport.onClose = null; } } catch (e) { }
     }
@@ -80,8 +85,9 @@ export class HostRoom {
     const id = transport.id || (transport.id = this.nextId());
     transport.onMessage = (msg) => this.handle(id, msg);
     transport.onClose = () => this.onPeerClose(id);
-    this.peers.set(id, { transport, name: transport.name || '棋友', role: null, online: true, deadline: 0, want: 'play' });
-    transport.send({ type: 'helloAck', id, hostName: this.hostName, room: { rules: this.rules, started: this.started } });
+    const token = this._issueToken();
+    this.peers.set(id, { transport, name: transport.name || '棋友', role: null, online: true, deadline: 0, want: 'play', token });
+    transport.send({ type: 'helloAck', id, hostName: this.hostName, peerToken: token, room: { rules: this.rules, started: this.started } });
     this.emitPeers();
     return id;
   }
@@ -96,7 +102,9 @@ export class HostRoom {
     switch (msg.type) {
       case 'hello': {
         if (msg.reconnect) {
-          const entry = [...this.peers.entries()].find(([, p]) => p.name === msg.name && !p.online && (p.role === 'r' || p.role === 'b'));
+          // 优先按持久令牌精确找回原 peer(同席位), 回退到 名字+对局角色 兼容旧客户端
+          let entry = msg.token ? [...this.peers.entries()].find(([, p]) => p.token === msg.token && !p.online) : null;
+          if (!entry) entry = [...this.peers.entries()].find(([, p]) => p.name === msg.name && !p.online && (p.role === 'r' || p.role === 'b'));
           if (entry) { this.reconnect(entry[0], id, peer); return; }
         }
         peer.name = msg.name || peer.name;
@@ -104,6 +112,15 @@ export class HostRoom {
         this.emitPeers();
         if (this.started) this.acceptJoin(id, 'spec');
         else this.emit('challenge', { peerId: id, name: peer.name, want: peer.want });
+        break;
+      }
+      case 'bye': {
+        // 对端主动离开(有别于网络中断): 若离开的是对局对手, 立即按"对方离开"结算, 不再等 90s 掉线判负
+        const role = peer.role;
+        peer.online = false; peer.deadline = 0;
+        this.emit('peerLeft', { name: peer.name, role });
+        if (role === 'b' && !this.over) { this.endGame('redwin', 'left'); }
+        this.emitPeers();
         break;
       }
       case 'jieqiReady':
@@ -406,10 +423,17 @@ export class HostRoom {
 // GuestRoom (加入者=黑方或观战者)
 // ============================================================
 export class GuestRoom {
-  constructor(transport, { name = '棋友', want = 'play' } = {}) {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.reconnect=false]  是否断线重连(携带持久令牌, 请求房主按原席位恢复)
+   * @param {string}  [opts.peerToken=null]  上一局从 helloAck 拿到的重连令牌
+   */
+  constructor(transport, { name = '棋友', want = 'play', reconnect = false, peerToken = null } = {}) {
     this.transport = transport;
     this.name = name;
     this.want = want;
+    this.reconnect = !!reconnect;
+    this.peerToken = peerToken;
     this.state = null;
     this.seat = null;
     this.rules = null;
@@ -422,9 +446,9 @@ export class GuestRoom {
     this.evt = [];
     this.dead = false;
     transport.onMessage = (m) => { if (!this.dead) this.handle(m).catch(e => this.emit('error', { message: String(e) })); };
-    // 本端主动 destroy 后, 底层 pc 异步转为 closed 不再对外发"房间已解散"(那是对端掉线才应提示)
-    transport.onClose = () => { if (!this.dead) this.emit('closed', {}); };
-    transport.send({ type: 'hello', name, want });
+    // 突兀关闭(未收到 bye) => 视为网络中断, 交重连状态机处理; 而非"房主已解散"
+    transport.onClose = () => { if (!this.dead) this.emit('peerDropped', {}); };
+    transport.send({ type: 'hello', name, want, reconnect: !!reconnect, token: peerToken });
   }
   onEvent(cb) { this.evt.push(cb); }
   emit(type, data = {}) { if (this.dead) return; for (const cb of this.evt) cb({ type, ...data }); }
@@ -440,7 +464,12 @@ export class GuestRoom {
     switch (m.type) {
       case 'helloAck':
         this.hostName = m.hostName; this.rules = m.room.rules;
+        if (m.peerToken) this.peerToken = m.peerToken;  // 缓存令牌, 供下次断线重连凭它找回原席位
         this.emit('helloAck', m);
+        break;
+      case 'bye':
+        // 房主/对手主动离开: 干净收尾, 不进入重连流程
+        this.emit('peerLeft', { reason: m.reason || 'host-left' });
         break;
       case 'joined':
         this.seat = m.role; this.mySide = m.role;
@@ -525,6 +554,11 @@ export class GuestRoom {
     }
   }
 
+  // 主动离开: 先告知房主"我是主动离开"(区别于网络中断), 再销毁
+  leave() {
+    try { this.send({ type: 'bye' }); } catch (e) { }
+    this.destroy();
+  }
   localMove(from, to) {
     if (!this.state || this.state.status !== 'playing' || this.seat !== 'b') return { ok: false };
     if (this.state.turn !== 'b') return { ok: false };

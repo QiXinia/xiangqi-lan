@@ -7,6 +7,13 @@ import { sfx, vibrate, soundEnabled } from './audio.js';
 import { modal, toast, sheet, confirmBox, closeModal, h } from './ui.js';
 import { store } from './storage.js';
 import { TIME_RULES } from './room.js';
+// XQ* 独立模块: 时钟/悔棋和降策略/战绩/棋谱导出(逻辑在各模块, controller 仅调用)
+import { XQMakeClock } from './xq-clock.js';
+import { XQUndoPlan, XQDrawFlow, XQResignResult, XQShouldRecord } from './xq-game-actions.js';
+import { XQBuildRecord, XQSaveRecord } from './xq-records.js';
+import { XQExportText, XQCopyText, XQShareText } from './xq-exporter.js';
+// 局域网断线重连状态机(纯前端, iceServers 恒为空, 不产生任何新连接配置)
+import { XQNetReconnector, XQNetLinkState } from './net-reconnect.js';
 
 // ---------- AI Worker 单例 ----------
 let _w = null, _req = 0;
@@ -74,6 +81,7 @@ export class GameSession {
 
   mount(container) {
     this.container = container;
+    this._t0 = Date.now(); // 对局起始时间(战绩用时统计)
     if (this.mode === 'lan') {
       this.state = this.room.state;
     } else if (this.cfg.puzzle) {
@@ -371,10 +379,8 @@ export class GameSession {
       else this.board.setInteractive(true);
       return;
     }
-    let n = 1;
-    if (this.mode === 'puzzle') n = this.state.turn === this.mySide ? Math.min(2, this.state.moves.length) : 1;
-    else if (this.mode === 'ai') n = this.state.turn === this.mySide ? 2 : 1;
-    n = Math.min(n, this.state.moves.length);
+    // 撤回半回合数由 XQUndoPlan 按模式/行棋方决定(人机/残局撤一对、同台撤一着)
+    const { n } = XQUndoPlan({ mode: this.mode, state: this.state, mySide: this.mySide });
     if (!n) return;
     undoMoves(this.state, n);
     this.ended = false; this.state.status = 'playing'; this.state.reason = '';
@@ -424,6 +430,27 @@ export class GameSession {
         h('b', {}, String(i / 2 + 1) + '.'), mv[i].notation,
         mv[i + 1] ? ' ' + mv[i + 1].notation : ''
       ]));
+    }
+    // 导出: 复制/分享标准中文棋谱纯文本(离线, 仅本机/系统分享, 无外链)
+    if (mv.length) {
+      const modeName = this.mode === 'ai' ? '人机对弈' : this.mode === 'local' ? '同台对弈'
+        : this.mode === 'lan' ? '局域网对战' : this.mode === 'puzzle' ? '残局定式' : '自由练习';
+      const resultTxt = this.state.status === 'draw' ? '和棋'
+        : this.state.status === 'redwin' ? '红胜' : this.state.status === 'blackwin' ? '黑胜' : '进行中';
+      const text = XQExportText({
+        moves: mv, result: resultTxt, reason: this.state.reason, mode: modeName,
+        jieqi: !!this.cfg.jieqi, fen: this.state.initialFen, seed: this.state.seed, at: this._t0
+      });
+      const expBar = h('div', { class: 'xq-export-bar' }, [
+        h('button', { class: 'act xq-export-btn', onclick: async () => {
+          const ok = await XQCopyText(text); toast(ok ? '棋谱已复制到剪贴板' : '复制失败');
+        } }, [h('div', { class: 'act-ic' }, '拷'), h('span', {}, '复制棋谱')]),
+        h('button', { class: 'act xq-export-btn', onclick: async () => {
+          const shared = await XQShareText(text);
+          if (!shared) { const c = await XQCopyText(text); toast(c ? '已复制棋谱(本机不支持系统分享)' : '分享/复制失败'); }
+        } }, [h('div', { class: 'act-ic' }, '享'), h('span', {}, '分享棋谱')])
+      ]);
+      body.appendChild(expBar);
     }
     sheet({ title: '棋谱' + (this.state.reason ? '（' + (REASON_TEXT[this.state.reason] || this.state.reason) + '）' : ''), bodyEl: body });
   }
@@ -475,6 +502,25 @@ export class GameSession {
       document.getElementById('bar-top')?.classList.toggle('active', this.state.status === 'playing' && this.state.turn !== this.mySide);
     }, 300);
     this.timers.push(this._lanTimer);
+    // 断线重连状态机: guest 侧重连(传输断->重连中, host 主动离开->结束); host 侧沿用 peerOffline/peerBack
+    this._recon = new XQNetReconnector({});
+    this._recon.onTransition = (st, info) => {
+      if (st === XQNetLinkState.RECONNECTING) {
+        this.banner.style.display = '';
+        this.banner.textContent = '连接中断, 正在尝试重连…';
+      } else if (st === XQNetLinkState.UP && info.recovered) {
+        this.banner.style.display = 'none'; toast('已重新连接, 棋局已同步');
+      } else if (st === XQNetLinkState.GONE) {
+        this.banner.style.display = 'none';
+      } else if (st === XQNetLinkState.GIVEUP) {
+        modal({ title: '重连失败', body: '网络中断未能恢复, 请回到建房页重新扫码加入。',
+          buttons: [{ text: '返回大厅', cls: 'btn-primary', onClick: () => this.opts.onExit && this.opts.onExit() }] });
+      }
+    };
+    this._recon.onAttemptRestart = () => {
+      // 纯静态无信令服务器: 同设备可经 BroadcastChannel 中继新 SDP, 跨设备需重新扫码(由 pair.js 承担)
+      if (!isHost) toast('正在恢复连接, 若长时间未恢复请重新扫码加入');
+    };
   }
   _onRoomEvent(ev) {
     switch (ev.type) {
@@ -534,6 +580,22 @@ export class GameSession {
       case 'closed':
         modal({ title: '房间已解散', body: '房主离开了对局。', buttons: [{ text: '返回大厅', cls: 'btn-primary', onClick: () => this.opts.onExit && this.opts.onExit() }] });
         break;
+      case 'reconnected':
+        // guest 重连握手成功; 紧随其后的 snapshot 由上方 case 渲染恢复局面
+        this._recon && this._recon.notifyUp(); break;
+      case 'peerDropped':
+        // guest 传输突兀关闭(网络中断) -> 进入重连; host 主动离开会另发 peerLeft
+        if (this._recon) this._recon.notifyClosed({ clean: false });
+        else { this.banner.style.display = ''; this.banner.textContent = '连接中断, 正在尝试重连…'; }
+        break;
+      case 'peerLeft': {
+        // 收到对方主动 bye(guest 视角为房主离开): 不再重连, 直接结束
+        this._recon && this._recon.notifyClosed({ clean: true });
+        this.banner.style.display = 'none';
+        modal({ title: this.roomHost ? '对方已离开' : '房主已离开', body: '对局已结束。',
+          buttons: [{ text: '返回大厅', cls: 'btn-primary', onClick: () => this.opts.onExit && this.opts.onExit() }] });
+        break;
+      }
       case 'illegalMove': toast('走法被房主拒绝'); break;
     }
   }
@@ -569,34 +631,18 @@ export class GameSession {
   _startClock() {
     const rule = TIME_RULES[this.cfg.time];
     if (!rule || !rule.base) { this._clk = null; return; }
-    this._clk = { r: { remain: rule.base * 1000, phase: 'base' }, b: { remain: rule.base * 1000, phase: 'base' }, rule, lastTs: Date.now() };
+    // 时钟逻辑委托 XQMakeClock(纯逻辑, 时间源默认 Date.now, 可注入假时钟自测)
+    this._clk = XQMakeClock(rule);
     this._clockTimer = setInterval(() => {
       if (this.ended || this.mode === 'lan') return;
-      const now = Date.now(), side = this.state.turn, c = this._clk[side];
-      if (c.phase === 'byo') {
-        const left = c.remain - (now - this._clk.lastTs);
-        if (left <= 0) { this.finish(side === 'r' ? 'blackwin' : 'redwin', 'timeout'); return; }
-        c.remain = left; this._clk.lastTs = now;
-      } else {
-        const left = c.remain - (now - this._clk.lastTs);
-        this._clk.lastTs = now;
-        if (left <= 0) {
-          if (rule.byo) { c.phase = 'byo'; c.remain = rule.byo * 1000; }
-          else { c.remain = 0; this.finish(side === 'r' ? 'blackwin' : 'redwin', 'timeout'); return; }
-        } else c.remain = left;
-      }
+      const loser = this._clk.tick(this.state.turn);
+      if (loser) { this.finish(loser === 'r' ? 'blackwin' : 'redwin', 'timeout'); return; }
       this._renderClock();
     }, 300);
     this.timers.push(this._clockTimer);
   }
   _settleLocalClock(side) {
-    if (!this._clk) return;
-    const now = Date.now(), c = this._clk[side], rule = this._clk.rule;
-    const elapsed = now - this._clk.lastTs; this._clk.lastTs = now;
-    if (c.phase === 'byo') { c.remain = rule.byo * 1000; return; }
-    c.remain -= elapsed;
-    if (rule.inc) c.remain += rule.inc * 1000;
-    if (c.remain <= 0 && rule.byo) { c.phase = 'byo'; c.remain = rule.byo * 1000; }
+    if (this._clk) this._clk.settle(side);
   }
   _syncLanClock() { this._clockSync = Date.now(); }
   _currentClockView() {
@@ -609,7 +655,7 @@ export class GameSession {
       }
       return view;
     }
-    return this._clk;
+    return this._clk ? this._clk.view() : null;
   }
 
   // ---------------- 渲染 ----------------
@@ -769,16 +815,14 @@ export class GameSession {
     if (this.mySide !== 'spec') {
       if (draw) sfx.draw(); else iWin ? sfx.win() : sfx.lose();
     }
-    // 存战绩(未走任何棋即认输/结束时不入库, 避免污染战绩列表)
-    if (this.mode !== 'free' && this.mySide !== 'spec' && this.state.moves.length > 0) {
-      store.saveRecord({
+    // 存战绩(是否入库/记录组装在 XQRecords; 未走子/观战/自由练习不入库)
+    if (XQShouldRecord({ mode: this.mode, mySide: this.mySide, plies: this.state.moves.length })) {
+      XQSaveRecord(XQBuildRecord({
         mode: this.mode === 'ai' ? '人机对弈' : '局域网对战',
         result: draw ? '和棋' : (iWin ? '胜' : '负'),
-        reason, jieqi: !!this.cfg.jieqi, time: this.cfg.time || 'none',
-        aiLevel: this.cfg.aiLevel || null,
-        moves: this.state.moves.map(m => ({ from: m.from, to: m.to, notation: m.notation, reveal: m.reveal })),
-        fen: this.state.initialFen, seed: this.state.seed
-      });
+        reason, state: this.state, cfg: this.cfg, mySide: this.mySide,
+        durationMs: Date.now() - (this._t0 || Date.now())
+      }));
     }
     const seal = draw ? { cls: 'seal-draw', text: '和' } : { cls: iWin ? 'seal-win' : 'seal-lose', text: draw ? '和' : (iWin ? '胜' : '负') };
     const isLan = this.mode === 'lan';
@@ -801,16 +845,14 @@ export class GameSession {
     this.passing = false;
     const draw = status === 'draw';
     if (draw) sfx.draw(); else sfx.win();
-    // 未走任何棋即结束时不存战绩(终局特效/弹窗仍照常)
-    if (this.state.moves.length > 0) {
-      store.saveRecord({
+    // 同台双人: 未走任何棋即结束不存战绩(终局特效/弹窗仍照常)
+    if (XQShouldRecord({ mode: 'local', mySide: 'r', plies: this.state.moves.length })) {
+      XQSaveRecord(XQBuildRecord({
         mode: '同台对弈',
         result: draw ? '和棋' : (status === 'redwin' ? '红胜' : '黑胜'),
-        reason, jieqi: !!this.cfg.jieqi, time: this.cfg.time || 'none',
-        aiLevel: null,
-        moves: this.state.moves.map(m => ({ from: m.from, to: m.to, notation: m.notation, reveal: m.reveal })),
-        fen: this.state.initialFen, seed: this.state.seed
-      });
+        reason, state: this.state, cfg: this.cfg, mySide: null,
+        durationMs: Date.now() - (this._t0 || Date.now())
+      }));
     }
     const seal = draw ? { cls: 'seal-draw', text: '和' }
       : (status === 'redwin' ? { cls: 'seal-win', text: '红' } : { cls: 'seal-lose', text: '黑' });

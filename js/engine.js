@@ -476,7 +476,8 @@ export function moveNotation(state, from, to) {
 // ------------------------------------------------------------
 // 正式走子 (含揭棋翻开/终局判定/重复局面/记谱)
 // ------------------------------------------------------------
-function positionKey(state) {
+// 导出供外部(悔棋往返自测/复盘)比对局面指纹; 不改变任何规则
+export function positionKey(state) {
   let k = state.turn;
   for (let y = 0; y <= 9; y++) for (let x = 0; x <= 8; x++) {
     const p = state.board[y][x];

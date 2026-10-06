@@ -12,9 +12,19 @@ import { modal, toast, h, closeModal, closeSheet, navBar } from './ui.js';
 import { store } from './storage.js';
 import { setSoundEnabled, soundEnabled, sfx } from './audio.js';
 import { analyzeRecord, GRADE_META, scoreText } from './analyze.js';
+import { XQExportText, XQCopyText, XQShareText } from './xq-exporter.js';
 
 const $ = (id) => document.getElementById(id);
 let currentSession = null;
+
+// 界面版本(表现层): 在 <html> 上设 data-theme=new|classic, CSS 变量即时切换。
+// 与棋盘配色(body[data-theme=wood/jade/ink])作用于不同元素, 互不干扰; 默认 new。
+function applyUiTheme(ui) {
+  document.documentElement.dataset.theme = ui === 'classic' ? 'classic' : 'new';
+}
+function currentUiTheme() {
+  return store.settings().uiTheme === 'classic' ? 'classic' : 'new';
+}
 
 // 打谱/复盘(screen-review)自动播放定时器与 AI 分析任务的模块级句柄, 供切页/重进统一清理,
 // 避免旧页面的 setInterval / Worker 在后台空转或在已脱离的 DOM 上写结果。
@@ -73,6 +83,7 @@ function go(hash) {
 // 旧会话在转场动画结束后再销毁(避免滑出中的棋盘被提前清空)
 function route() {
   document.body.dataset.theme = store.settings().theme || 'wood';
+  applyUiTheme(currentUiTheme());
   const hash = location.hash || '#/home';
   const oldSession = currentSession; currentSession = null;
   const oldPairCleanup = window._xqPairCleanup; window._xqPairCleanup = null;
@@ -169,7 +180,7 @@ function fieldLabel(no, text) {
 // ---------------- 人机设置 ----------------
 function renderSetupAI() {
   const s = store.settings();
-  const cfg = { aiLevel: s.aiLevel || 3, humanSide: 'r', jieqi: false, time: '10', aiStyle: s.aiStyle || 'balance', aiEngine: s.aiEngine === 'pro' ? 'pro' : 'classic' };
+  const cfg = { aiLevel: s.aiLevel || 3, humanSide: 'r', jieqi: false, time: s.time || '10', aiStyle: s.aiStyle || 'balance', aiEngine: s.aiEngine === 'pro' ? 'pro' : 'classic' };
   const body = [
     h('div', { class: 'card' }, [
       h('h3', {}, [h('span', { class: 'h3-ic' }, '难'), '棋力与规则']),
@@ -597,7 +608,12 @@ function renderReview(id) {
   bar.append(
     ctl('⏮', () => gotoStep(0)), ctl('‹', () => gotoStep(step - 1)),
     ctl('自动', () => togglePlay(), 'ctl-play'),
-    ctl('›', () => gotoStep(step + 1)), ctl('⏭', () => gotoStep(rec.moves.length))
+    ctl('›', () => gotoStep(step + 1)), ctl('⏭', () => gotoStep(rec.moves.length)),
+    ctl('导谱', async () => {
+      const txt = XQExportText({ moves: rec.moves, result: rec.result, reason: rec.reason, mode: rec.mode, jieqi: rec.jieqi, fen: rec.fen, seed: rec.seed, at: rec.at });
+      const shared = await XQShareText(txt);
+      if (!shared) { const ok = await XQCopyText(txt); toast(ok ? '棋谱已复制到剪贴板' : '导出失败'); }
+    }, 'xq-export-btn')
   );
   const board = new BoardView(host, { viewSide: 'r', jieqi: !!rec.jieqi, interactive: false, onMove() { } });
   function rebuild(n) {
@@ -789,10 +805,25 @@ function renderSettings() {
     themePick.appendChild(b);
   });
 
+  // 界面版本(新/旧版经典): 仅切 data-theme, 即时生效, 持久化; 不影响任何对局/AI/残局逻辑
+  const uiNow = s.uiTheme === 'classic' ? 'classic' : 'new';
+  const uiSeg = segControl([
+    { label: '新版(现代动效)', value: 'new' },
+    { label: '旧版经典', value: 'classic' }
+  ], uiNow, v => {
+    applyUiTheme(v);
+    store.saveSettings({ uiTheme: v });
+  });
+
   const body = h('div', { class: 'page-body' }, [
     h('div', { class: 'section-title' }, '通用'),
     h('div', { class: 'group' }, [
       h('div', { class: 'set-row' }, [h('span', {}, '音效与振动'), h('label', { class: 'switch' }, [sound, h('span', { class: 'sl' })])]),
+      h('div', { style: 'padding:12px 4px' }, [
+        h('div', { class: 'field-label', style: 'margin:0 0 8px' }, '界面版本'),
+        uiSeg,
+        h('div', { class: 'muted', style: 'margin-top:7px' }, '旧版经典: 朴素配色, 关闭走子/将军/绝杀动效。')
+      ]),
       h('div', { style: 'padding:12px 4px 14px' }, [
         h('div', { class: 'field-label', style: 'margin:0 0 8px' }, '棋盘主题'),
         themePick
@@ -800,6 +831,13 @@ function renderSettings() {
       h('div', { style: 'padding:0 4px 14px' }, [
         h('div', { class: 'field-label', style: 'margin:0 0 8px' }, '对局昵称'),
         nameInput
+      ]),
+      h('div', { style: 'padding:0 4px 14px' }, [
+        h('div', { class: 'field-label', style: 'margin:0 0 8px' }, '默认对局计时'),
+        segControl([
+          { label: '不限时', value: 'none' }, { label: '10分钟', value: '10' }, { label: '5分钟', value: '5' },
+          { label: '20分钟', value: '20' }, { label: '10+3秒', value: '10+3' }, { label: '10+30读秒', value: '10+30s' }
+        ], s.time || '10', v => store.saveSettings({ time: v }), 'cols3')
       ])
     ]),
     h('div', { class: 'section-title' }, '联机与隐私'),

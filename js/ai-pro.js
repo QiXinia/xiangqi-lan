@@ -224,7 +224,7 @@ const PRO_engine = (() => {
        for (const rx of rookXY[c]) if (pawnFiles[c][rx] === 0) score += sign * 10;
        // (d) 将帅安全(对称, 双方都算): 王格被对方重子直接攻击重罚; 缺士象且对方有车炮暴露再罚
        const byOpp = c === 'r' ? 'b' : 'r';
-       if (PRO_fastIsAttacked(state, k[0], k[1], byOpp)) score -= sign * 140 * (0.4 + 0.6 * phase);
+       if (PRO_fastIsAttacked(state, k[0], k[1], byOpp)) score -= sign * 160 * (0.4 + 0.6 * phase);
        const exposed = (2 - guards[c].A) + (2 - guards[c].B);
        if (exposed > 0) {
          const oppHeavy = guards[byOpp].R * 9 + guards[byOpp].C * 4;
