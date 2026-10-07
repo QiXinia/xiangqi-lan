@@ -217,13 +217,13 @@ export async function guestPairFlow(root, { name, want, onEnter, onBack }) {
       if (!list.length) { sameList.style.display = 'none'; return; }
       sameList.style.display = '';
       sameList.appendChild(h('div', { class: 'field-label' }, [h('span', {}, '同设备')]));
-      for (const h of list) {
+      for (const room of list) {
         sameList.appendChild(h('button', {
           class: 'list-row', style: 'text-align:left',
-          onclick: () => { bcHostId = h.hostId; disco.requestOffer(h.hostId); toast('正在向同设备房间请求邀请…'); }
+          onclick: () => { bcHostId = room.hostId; disco.requestOffer(room.hostId); toast('正在向同设备房间请求邀请…'); }
         }, [
           h('div', { style: 'flex:1' }, [
-            h('div', { style: 'font-weight:700;font-size:14.5px' }, (h.hostName || '房主') + ' 的房间'),
+            h('div', { style: 'font-weight:700;font-size:14.5px' }, (room.hostName || '房主') + ' 的房间'),
             h('div', { class: 'muted', style: 'margin-top:2px' }, '同浏览器标签 · 免扫码直连')
           ]),
           h('span', { class: 'lr-chevron' }, '›')

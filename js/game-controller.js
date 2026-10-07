@@ -1,7 +1,7 @@
 // ============================================================
 // 对局统一控制器: 人机 / 局域网对战&观战 / 残局闯关 / 自由练习
 // ============================================================
-import { createState, applyMove, undoMoves, serialize, isInCheck } from './engine.js';
+import { createState, applyMove, undoMoves, serialize, isInCheck, legalMoves } from './engine.js';
 import { BoardView } from './board-view.js';
 import { sfx, vibrate, soundEnabled } from './audio.js';
 import { modal, toast, sheet, confirmBox, closeModal, h } from './ui.js';
@@ -12,6 +12,8 @@ import { XQMakeClock } from './xq-clock.js';
 import { XQUndoPlan, XQDrawFlow, XQResignResult, XQShouldRecord } from './xq-game-actions.js';
 import { XQBuildRecord, XQSaveRecord } from './xq-records.js';
 import { XQExportText, XQCopyText, XQShareText } from './xq-exporter.js';
+// 观战 AI 对战: 纯逻辑驱动状态机(本控制器仅注入 aiCall/落子/终局回调, 不另写规则)
+import { XQSpectate, SPEC_SPEEDS } from './ai-spectate.js';
 // 局域网断线重连状态机(纯前端, iceServers 恒为空, 不产生任何新连接配置)
 import { XQNetReconnector, XQNetLinkState } from './net-reconnect.js';
 
@@ -69,7 +71,7 @@ export class GameSession {
     this.opts = opts;
     this.mode = opts.mode;
     this.cfg = opts.cfg || {};
-    this.mySide = this.cfg.humanSide || 'r';
+    this.mySide = this.mode === 'spectate' ? 'spec' : (this.cfg.humanSide || 'r');
     this.room = null;
     this.ended = false;
     this.aiBusy = false;
@@ -105,9 +107,15 @@ export class GameSession {
     this._render();
     // 同台对坐: 开局先显示红方全屏交接提示
     if (this.dualLocal && this.cfg.passConfirm) this._passHandset();
+    // 观战 AI 对战: 启动红黑自动对弈驱动
+    if (this.mode === 'spectate') this._startSpectate();
   }
 
   _name(side) {
+    if (this.mode === 'spectate') {
+      const a = (this.cfg.spec || {})[side] || { engine: 'classic', level: 3 };
+      return (side === 'r' ? '红·' : '黑·') + (a.engine === 'pro' ? '激进' : '经典') + ' ' + ['', '入门', '业余', '进阶', '强软', '大师'][a.level || 3];
+    }
     if (this.mode === 'ai') return side === this.mySide ? (this.cfg.myName || '我') : (this.cfg.aiEngine === 'pro' ? '增强AI · ' : '象棋AI · ') + ['', '入门', '业余', '进阶', '强软', '大师'][this.cfg.aiLevel || 3];
     if (this.mode === 'puzzle') {
       const pz = this.cfg.puzzle;
@@ -197,6 +205,25 @@ export class GameSession {
       addAct('谱', '棋谱', () => this._openMoves());
     }
     wrap.appendChild(acts);
+    // 观战 AI 对战: 专用控制条(暂停/继续/单步/调速/重开/换配置), 不遮挡棋盘
+    if (this.mode === 'spectate') {
+      const ctl = h('div', { class: 'spec-ctlbar' });
+      this.specPauseBtn = h('button', { onclick: () => this._specTogglePause() }, '暂停');
+      this.specStepBtn = h('button', { onclick: () => this._specStep() }, '单步');
+      const speedBox = h('span', { class: 'spec-speed' });
+      this.specSpeedBtns = {};
+      for (const [k, lbl] of [['slow', '慢'], ['mid', '中'], ['fast', '快']]) {
+        const b = h('button', { 'data-sp': k, onclick: () => this._specSpeed(k) }, lbl);
+        this.specSpeedBtns[k] = b; speedBox.appendChild(b);
+      }
+      ctl.appendChild(this.specPauseBtn);
+      ctl.appendChild(this.specStepBtn);
+      ctl.appendChild(speedBox);
+      ctl.appendChild(h('button', { onclick: () => this.opts.onRestart && this.opts.onRestart() }, '重开'));
+      ctl.appendChild(h('button', { onclick: () => this.opts.onExit && this.opts.onExit() }, '换配置/退出'));
+      wrap.appendChild(ctl);
+      this._specMarkSpeed();
+    }
     // 电脑端宽屏三栏: 常驻回合信息条 + 走子记录容器。窄屏由 CSS 强制 display:none,
     // 不参与移动端纵向栈布局(节点为新增, 不影响既有 DOM 顺序)。
     this.turnInfo = h('div', { class: 'turn-info' });
@@ -808,6 +835,25 @@ export class GameSession {
       if (status === 'redwin') return this._puzzleModal(false);
       return;
     }
+    // 观战 AI 对战: 纯旁观, 按红/黑/和结算, 不存战绩; 先停驱动再播终局特效+弹窗
+    if (this.mode === 'spectate') {
+      if (this.spec) { try { this.spec.stop(); } catch (e) { } }
+      const draw = status === 'draw';
+      if (draw) sfx.draw(); else sfx.win();
+      const seal = draw ? { cls: 'seal-draw', text: '和' }
+        : (status === 'redwin' ? { cls: 'seal-win', text: '红' } : { cls: 'seal-lose', text: '黑' });
+      this._fxThen(this._endGrade(status, reason), () => modal({
+        seal,
+        title: draw ? '和棋' : (status === 'redwin' ? '红方获胜' : '黑方获胜'),
+        body: (REASON_TEXT[reason] || reason || '') + '　共 ' + Math.ceil(this.state.moves.length / 2) + ' 回合',
+        buttons: [
+          { text: '再来一局', cls: 'btn-primary', onClick: () => this.opts.onRestart && this.opts.onRestart() },
+          { text: '换个配置', cls: 'btn-ghost', onClick: () => this.opts.onExit && this.opts.onExit() },
+          { text: '查看棋谱', cls: 'btn-ghost', onClick: () => this._openMoves() }
+        ]
+      }));
+      return;
+    }
     // 同台双人: 无"我方"概念, 按红/黑方结算并存战绩
     if (this.mode === 'local') return this._localFinish(status, reason);
     const draw = status === 'draw';
@@ -928,8 +974,55 @@ export class GameSession {
     }, d);
   }
 
+  // ---------------- 观战 AI 对战(纯旁观, 红黑 AI 自动对弈) ----------------
+  _startSpectate() {
+    if (this.spec) this.spec.stop();
+    const spec = this.cfg.spec || { red: { engine: 'classic', level: 3 }, black: { engine: 'pro', level: 3 }, speed: 'mid' };
+    this.spec = new XQSpectate({
+      red: spec.red, black: spec.black, speed: spec.speed || 'mid',
+      // aiCall 已含超时兜底(到点必回 null), 这里按当前回合方的引擎/档位发请求
+      aiCallFn: (side, engine, level) => aiCall(
+        serialize(this.state), level, false, 2500, 'balance',
+        { engine, seed: this.state.seed, ply: this.state.moves.length }),
+      fallbackFn: (side) => this._firstLegal(side),
+      applyFn: (mv) => this._specApply(mv),
+      onEnd: ({ status, reason }) => { if (!this.ended) this.finish(status, reason); }
+    });
+    this.spec.start();
+  }
+  // 落子+记谱+渲染+音效; 返回终局状态供驱动换方/收尾
+  _specApply(mv) {
+    const m = applyMove(this.state, mv.from, mv.to, {});
+    this._afterMoveSfx(m);
+    this._render();
+    const over = this.state.status !== 'playing';
+    return { over, status: this.state.status, reason: this.state.reason, nextSide: this.state.turn };
+  }
+  // 某方 worker 回 null 时的兜底: 取当前方首个合法着, 绝不卡死
+  _firstLegal(side) {
+    try { const lm = legalMoves(this.state, side); return lm && lm.length ? { from: lm[0].from, to: lm[0].to } : null; }
+    catch (e) { return null; }
+  }
+  _specTogglePause() {
+    if (!this.spec || this.ended) return;
+    const p = !this.spec.paused;
+    this.spec.setPaused(p);
+    if (this.specPauseBtn) this.specPauseBtn.textContent = p ? '继续' : '暂停';
+  }
+  _specStep() { this.spec && this.spec.stepOnce(); }
+  _specSpeed(k) {
+    if (!this.spec) return;
+    this.spec.setSpeed(k); this._specMarkSpeed();
+  }
+  _specMarkSpeed() {
+    if (!this.specSpeedBtns) return;
+    const cur = this.spec ? this.spec.speed : 'mid';
+    for (const k in this.specSpeedBtns) this.specSpeedBtns[k].classList.toggle('on', k === cur);
+  }
+
   destroy() {
     this._destroyed = true;
+    if (this.spec) { try { this.spec.stop(); } catch (e) { } this.spec = null; }
     clearInterval(this._clockTimer);
     clearInterval(this._lanTimer);
     clearTimeout(this._fxT);

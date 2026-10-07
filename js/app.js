@@ -95,6 +95,7 @@ function route() {
 
   if (hash === '#/home') return renderHome();
   if (hash === '#/ai') return renderSetupAI();
+  if (hash === '#/spectate') return renderSetupSpectate();
   if (hash === '#/local') return renderSetupLocal();
   if (hash === '#/host') return renderSetupHost();
   if (hash === '#/join') return renderSetupJoin();
@@ -135,6 +136,7 @@ function renderHome() {
       menuItem('mi-red', '战', '局域网对战', '建房邀请好友, 或扫码加入 / 观战', () => go('#/host')),
       menuItem('mi-teal', '对', '同台双人', '手机平放中间, 棋子各朝己方, 全屏交接', () => go('#/local')),
       menuItem('mi-brown', '机', '人机对弈', '五级棋力 · 经典/揭棋 · 可计时', () => go('#/ai')),
+      menuItem('mi-purple', '观', '观战 AI 对战', '红黑两台 AI 自动对弈 · 学棋复盘', () => go('#/spectate')),
       menuItem('mi-green', '局', '残局定式', PUZZLES.length + ' 关 · 连将杀与例胜/守和定式', () => go('#/puzzles')),
       menuItem('mi-purple', '谱', '棋谱库', OPENINGS.length + ' 套主流开局定式, 分类打谱推演', () => go('#/library')),
       menuItem('mi-blue', '复', '复盘战绩', '本地保存的对局棋谱, 逐步复盘', () => go('#/records')),
@@ -229,6 +231,57 @@ function startAi(cfg) {
     onRestart: () => startAi(cfg)
   });
   currentSession.mount(root);
+}
+
+// ---------------- 观战 AI 对战设置 ----------------
+function renderSetupSpectate() {
+  const lv = [
+    { label: '入门', value: 1 }, { label: '业余', value: 2 }, { label: '进阶', value: 3 },
+    { label: '强软', value: 4 }, { label: '大师', value: 5 }
+  ];
+  const eng = [{ label: '经典(稳健)', value: 'classic' }, { label: '激进(攻杀)', value: 'pro' }];
+  // 默认: 红经典 vs 黑激进, 中速
+  const cfg = {
+    red: { engine: 'classic', level: 3 },
+    black: { engine: 'pro', level: 3 },
+    speed: 'mid'
+  };
+  const engRow = (who, label) => [
+    h('div', { class: 'field-label' }, label),
+    segControl(eng, cfg[who].engine, v => cfg[who].engine = v),
+    h('div', { class: 'field-label', style: 'margin-top:10px' }, label + ' · 棋力'),
+    segControl(lv, cfg[who].level, v => cfg[who].level = v, 'cols3')
+  ];
+  const body = [
+    h('div', { class: 'card' }, [
+      h('h3', {}, [h('span', { class: 'h3-ic' }, '红'), '红方 AI(先手)']),
+      ...engRow('red', '红方引擎')
+    ]),
+    h('div', { class: 'card' }, [
+      h('h3', {}, [h('span', { class: 'h3-ic' }, '黑'), '黑方 AI(后手)']),
+      ...engRow('black', '黑方引擎')
+    ]),
+    h('div', { class: 'card' }, [
+      h('h3', {}, [h('span', { class: 'h3-ic' }, '速'), '播放速度']),
+      segControl([{ label: '慢', value: 'slow' }, { label: '中', value: 'mid' }, { label: '快', value: 'fast' }], cfg.speed, v => cfg.speed = v)
+    ]),
+    h('div', { class: 'muted' }, '两台 AI 自动轮流落子, 可暂停/单步/调速; 终局按将死/困毙/长将/重复和判红胜/黑胜/和。经典引擎稳健全面; 激进引擎攻杀锐利, 但不代表综合更强。')
+  ];
+  setupSkeleton('观战 AI 对战', '#/home', body, '开始观战', () => startSpectate(cfg));
+}
+function startSpectate(cfg) {
+  disposeCurrentSession();
+  show('screen-game');
+  const root = $('screen-game');
+  const run = (spec) => {
+    currentSession = new GameSession({
+      mode: 'spectate', cfg: { spec, jieqi: false, myName: '观战' },
+      onExit: () => go('#/spectate'),
+      onRestart: () => run(spec)
+    });
+    currentSession.mount(root);
+  };
+  run(cfg);
 }
 
 // ---------------- 同台双人设置 ----------------
@@ -843,8 +896,10 @@ function renderSettings() {
     h('div', { class: 'section-title' }, '联机与隐私'),
     h('div', { class: 'group' }, [
       aboutRow('直', '联机使用 WebRTC DataChannel, iceServers 为空, 只在局域网内建立直连, 不连接任何 STUN / TURN / 中继服务器。'),
-      aboutRow('探', '网页没有系统级 UDP 广播 / mDNS 发布权限(原生 App 才能做到 LocalSend 式零交互发现), 因此以两轮扫码交换连接信息。'),
+      aboutRow('探', '网页没有系统级 UDP 广播 / mDNS 发布权限(原生 App 才能做到 LocalSend 式零交互发现), 因此跨设备以两轮扫码 / 粘贴房间信令交换连接信息。'),
+      aboutRow('同', '同设备多标签可自动发现: 本机另开一个标签页建房, 加入页会自动列出本浏览器已开的房间, 免扫码直连; 全程纯局域网, 数据不经互联网。'),
       aboutRow('眼', '摄像头仅用于本地识别二维码, 画面不出设备。'),
+      aboutRow('续', '揭棋(暗子)断线重连需重开一局, 明暗棋子无法跨标签/跨端恢复; 经典明象棋断线可在限时内重扫房间码回到原局。'),
       aboutRow('隐', '战绩与设置只保存在本机浏览器, 不上传。')
     ]),
     h('div', { class: 'section-title' }, '棋子字体'),
