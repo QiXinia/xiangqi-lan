@@ -8,7 +8,7 @@ import { playLine } from './notation.js';
 import { BoardView } from './board-view.js';
 import { GameSession } from './game-controller.js';
 import { hostPairFlow, guestPairFlow } from './pair.js';
-import { modal, toast, h, closeModal, closeSheet, navBar } from './ui.js';
+import { modal, toast, h, closeModal, closeSheet, navBar, sheet } from './ui.js';
 import { store } from './storage.js';
 import { setSoundEnabled, soundEnabled, sfx } from './audio.js';
 import { analyzeRecord, GRADE_META, scoreText } from './analyze.js';
@@ -445,7 +445,7 @@ function renderPuzzles() {
     list.forEach(pz => {
       const i = PUZZLES.indexOf(pz);
       const done = prog[pz.id];
-      grid.appendChild(h('button', { class: 'puzzle-cell' + (done ? ' done' : ''), onclick: () => startPuzzle(i) }, [
+      grid.appendChild(h('button', { class: 'puzzle-cell' + (done ? ' done' : ''), onclick: () => puzzleChooseMode(i) }, [
         h('span', { class: 'pz-check' }, '✓'),
         h('div', { class: 'pz-no' }, String(pz.id).padStart(2, '0')),
         h('div', { class: 'pz-name' }, pz.name),
@@ -465,26 +465,58 @@ function renderPuzzles() {
   });
   root.append(topbar('残局定式', '#/home'), summary, chips, body);
 }
-function startPuzzle(index) {
+// 点关卡: 弹出"我来闯关 / AI演示正解 / 双AI对弈"三模式选择
+function puzzleChooseMode(index) {
+  const pz = PUZZLES[index];
+  if (!pz) return go('#/puzzles');
+  const lv = [{ label: '入门', value: 1 }, { label: '业余', value: 2 }, { label: '进阶', value: 3 }, { label: '强软', value: 4 }, { label: '大师', value: 5 }];
+  const eng = [{ label: '经典(稳健)', value: 'classic' }, { label: '激进(攻杀)', value: 'pro' }];
+  // 双 AI 对弈配置(残局默认: 红方进攻激进 vs 黑方防守经典)
+  const dcfg = { red: { engine: 'pro', level: 3 }, black: { engine: 'classic', level: 3 }, speed: 'mid' };
+  const engRow = (who, label) => [
+    h('div', { class: 'field-label' }, label),
+    segControl(eng, dcfg[who].engine, v => dcfg[who].engine = v),
+    h('div', { class: 'field-label', style: 'margin-top:8px' }, label + ' · 棋力'),
+    segControl(lv, dcfg[who].level, v => dcfg[who].level = v, 'cols3')
+  ];
+  const body = h('div', { style: 'padding:4px 2px' }, [
+    h('div', { class: 'muted', style: 'margin-bottom:10px' },
+      `第 ${pz.id} 关「${pz.name}」 · ` + (!pz.type ? pz.mate + ' 步杀' : pz.type === 'win' ? '例胜定式' : '守和定式')),
+    h('button', { class: 'btn-primary', style: 'width:100%;margin-bottom:8px', onclick: () => { closeSheet(); startPuzzle(index, 'play'); } }, '我来闯关'),
+    h('button', { class: 'btn-primary', style: 'width:100%;margin-bottom:8px', onclick: () => { closeSheet(); startPuzzle(index, 'demo'); } }, 'AI 演示正解(教学)'),
+    h('div', { class: 'section-title', style: 'margin:6px 0' }, '双 AI 对弈残局(观摩)'),
+    h('div', { class: 'field-label' }, '进攻方(红)引擎'),
+    ...engRow('red', '红方'),
+    h('div', { class: 'field-label', style: 'margin-top:10px' }, '防守方(黑)引擎'),
+    ...engRow('black', '黑方'),
+    h('button', { class: 'btn-primary', style: 'width:100%;margin-top:10px', onclick: () => { closeSheet(); startPuzzle(index, 'double', dcfg); } }, '开始双 AI 对弈')
+  ]);
+  sheet({ title: '选择玩法', bodyEl: body });
+}
+function startPuzzle(index, mode = 'play', extra = {}) {
   const pz = PUZZLES[index];
   if (!pz) return go('#/puzzles');
   disposeCurrentSession();
   show('screen-game');
   const root = $('screen-game');
   const humanSide = pz.humanSide || 'r';
+  const cfg = { puzzle: pz, humanSide, time: 'none', myName: store.settings().name || '我', puzzleMode: mode };
+  if (mode === 'double' && extra.red) cfg.doubleCfg = extra;
+  if (mode === 'demo' || mode === 'double') cfg.speed = extra.speed || 'mid';
   const session = new GameSession({
     mode: 'puzzle',
-    cfg: { puzzle: pz, humanSide, time: 'none', myName: store.settings().name || '我' },
+    cfg,
     onExit: () => go('#/puzzles'),
-    onRestart: () => startPuzzle(index),
+    onRestart: () => startPuzzle(index, mode, extra),
     onNextPuzzle: () => startPuzzle(index + 1)
   });
   currentSession = session;
   session.mount(root);
   // 关卡信息条
   const goal = !pz.type ? `红先 · ${pz.mate} 步杀` : (pz.type === 'win' ? '例胜定式 · 你执红, 将死黑方' : '守和定式 · 你执黑, 坚守 40 回合');
+  const demoTag = mode === 'demo' ? '　[AI 演示正解]' : (mode === 'double' ? '　[双 AI 对弈]' : '');
   const bar = h('div', { class: 'hint-box', style: 'margin:8px 10px 2px' },
-    `第 ${pz.id} 关「${pz.name}」 · ${goal}　|　${pz.hint}`);
+    `第 ${pz.id} 关「${pz.name}」 · ${goal}${demoTag}　|　${pz.hint}`);
   root.querySelector('.game-wrap').insertBefore(bar, root.querySelector('.board-area'));
 }
 

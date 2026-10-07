@@ -14,6 +14,8 @@ import { XQBuildRecord, XQSaveRecord } from './xq-records.js';
 import { XQExportText, XQCopyText, XQShareText } from './xq-exporter.js';
 // 观战 AI 对战: 纯逻辑驱动状态机(本控制器仅注入 aiCall/落子/终局回调, 不另写规则)
 import { XQSpectate, SPEC_SPEEDS } from './ai-spectate.js';
+// 残局 AI 演示/双 AI 对弈: 复用观战驱动, 加残局 FEN 起点 + 求解器/引擎分工 + 胜负判定
+import { XQPuzDemo, XQPDVerdict } from './puzzle-ai-demo.js';
 // 局域网断线重连状态机(纯前端, iceServers 恒为空, 不产生任何新连接配置)
 import { XQNetReconnector, XQNetLinkState } from './net-reconnect.js';
 
@@ -72,6 +74,9 @@ export class GameSession {
     this.mode = opts.mode;
     this.cfg = opts.cfg || {};
     this.mySide = this.mode === 'spectate' ? 'spec' : (this.cfg.humanSide || 'r');
+    // 残局 AI 演示/双 AI 对弈: 非人工闯关, 全程自动, 棋盘不可交互
+    this.pzMode = (this.mode === 'puzzle' && this.cfg.puzzleMode && this.cfg.puzzleMode !== 'play') ? this.cfg.puzzleMode : null;
+    if (this.mode === 'puzzle' && this.pzMode) this.mySide = 'spec';
     this.room = null;
     this.ended = false;
     this.aiBusy = false;
@@ -103,12 +108,14 @@ export class GameSession {
     this.board.setState(this.state);
     this._startClock();
     if (this.mode === 'ai' && this.state.turn !== this.mySide) this._scheduleAi();
-    if (this.mode === 'puzzle' && this.state.turn !== this.mySide) this._schedulePuzzleAi();
+    if (this.mode === 'puzzle' && !this.pzMode && this.state.turn !== this.mySide) this._schedulePuzzleAi();
     this._render();
     // 同台对坐: 开局先显示红方全屏交接提示
     if (this.dualLocal && this.cfg.passConfirm) this._passHandset();
     // 观战 AI 对战: 启动红黑自动对弈驱动
     if (this.mode === 'spectate') this._startSpectate();
+    // 残局 AI 演示/双 AI 对弈: 启动自动演示驱动
+    if (this.mode === 'puzzle' && this.pzMode) this._startPuzDemo();
   }
 
   _name(side) {
@@ -205,8 +212,8 @@ export class GameSession {
       addAct('谱', '棋谱', () => this._openMoves());
     }
     wrap.appendChild(acts);
-    // 观战 AI 对战: 专用控制条(暂停/继续/单步/调速/重开/换配置), 不遮挡棋盘
-    if (this.mode === 'spectate') {
+    // 观战 AI 对战 / 残局 AI 演示: 专用控制条(暂停/继续/单步/调速/重开/换配置), 不遮挡棋盘
+    if (this.mode === 'spectate' || this.pzMode) {
       const ctl = h('div', { class: 'spec-ctlbar' });
       this.specPauseBtn = h('button', { onclick: () => this._specTogglePause() }, '暂停');
       this.specStepBtn = h('button', { onclick: () => this._specStep() }, '单步');
@@ -1003,26 +1010,89 @@ export class GameSession {
     try { const lm = legalMoves(this.state, side); return lm && lm.length ? { from: lm[0].from, to: lm[0].to } : null; }
     catch (e) { return null; }
   }
+  // 残局 AI 演示/双 AI 对弈: 启动自动演示驱动(从残局 FEN, 攻击方求解或引擎, 防守方大师)
+  _startPuzDemo() {
+    if (this.pzDemo) this.pzDemo.stop();
+    const pz = this.cfg.puzzle;
+    const attacker = this.state.turn === 'b' ? 'b' : 'r'; // 残局先手方即攻击方
+    const doubleCfg = this.cfg.doubleCfg || { red: { engine: 'classic', level: 3 }, black: { engine: 'pro', level: 3 } };
+    this.pzDemo = new XQPuzDemo({
+      attacker,
+      mode: this.pzMode,                                   // 'demo' | 'double'
+      speed: this.cfg.speed || 'mid',
+      // 攻击方确定性求解: worker puzzleHint(sol-maps/findForcedMate 最短杀), noBook 确定性
+      solverAiCall: () => aiCall(
+        serialize(this.state), 5, true, 6000, 'balance',
+        { puzzleHint: true, puzzleId: pz.id, mateTarget: pz.mate || 6, attacker }),
+      // 普通引擎落子(防守方大师档 / double 双方自选)
+      engineAiCall: (side, engine, level) => aiCall(
+        serialize(this.state), level, false, 2500, 'balance',
+        { engine, seed: this.state.seed, ply: this.state.moves.length }),
+      doubleCfg,
+      defenderLevel: 5,
+      fallbackFn: (side) => this._firstLegal(side),
+      applyFn: (mv) => this._puzApply(mv),
+      onEnd: ({ status, reason, plies }) => {
+        if (this.ended) return;
+        const v = XQPDVerdict({
+          mode: this.pzMode, type: pz.type, attacker,
+          mateTarget: pz.mate, status, reason, plies
+        });
+        this._finishPuzDemo(status, reason, v);
+      }
+    });
+    this.pzDemo.start();
+    this._specMarkSpeed();
+  }
+  // 演示落子: 复用观战落子渲染/音效; 返回终局状态
+  _puzApply(mv) {
+    const m = applyMove(this.state, mv.from, mv.to, {});
+    this._afterMoveSfx(m);
+    this._render();
+    const over = this.state.status !== 'playing';
+    return { over, status: this.state.status, reason: this.state.reason, nextSide: this.state.turn };
+  }
+  // 演示终局弹窗: 如实判定(成功步数/失败/和), 复用观战终局特效
+  _finishPuzDemo(status, reason, v) {
+    this.ended = true;
+    this.aiToken++;
+    const draw = status === 'draw';
+    if (draw) sfx.draw(); else sfx.win();
+    const seal = draw ? { cls: 'seal-draw', text: '和' }
+      : (status === 'redwin' ? { cls: 'seal-win', text: '红' } : { cls: 'seal-lose', text: '黑' });
+    this._fxThen(this._endGrade(status, reason), () => modal({
+      seal, title: v.title, body: v.sub + '　(' + (REASON_TEXT[reason] || reason || '') + ')',
+      buttons: [
+        { text: '再演一次', cls: 'btn-primary', onClick: () => this.opts.onRestart && this.opts.onRestart() },
+        { text: '换个配置', cls: 'btn-ghost', onClick: () => this.opts.onExit && this.opts.onExit() },
+        { text: '查看棋谱', cls: 'btn-ghost', onClick: () => this._openMoves() }
+      ]
+    }));
+  }
   _specTogglePause() {
-    if (!this.spec || this.ended) return;
-    const p = !this.spec.paused;
-    this.spec.setPaused(p);
+    const drv = this.pzDemo || this.spec;
+    if (!drv || this.ended) return;
+    const p = !drv.paused;
+    drv.setPaused(p);
     if (this.specPauseBtn) this.specPauseBtn.textContent = p ? '继续' : '暂停';
   }
-  _specStep() { this.spec && this.spec.stepOnce(); }
+  _specStep() { const drv = this.pzDemo || this.spec; drv && drv.stepOnce(); }
   _specSpeed(k) {
-    if (!this.spec) return;
-    this.spec.setSpeed(k); this._specMarkSpeed();
+    const drv = this.pzDemo || this.spec;
+    if (!drv) return;
+    drv.setSpeed(k); this._specMarkSpeed();
   }
   _specMarkSpeed() {
     if (!this.specSpeedBtns) return;
-    const cur = this.spec ? this.spec.speed : 'mid';
+    const drv = this.pzDemo || this.spec;
+    const cur = drv ? drv.speed : 'mid';
     for (const k in this.specSpeedBtns) this.specSpeedBtns[k].classList.toggle('on', k === cur);
   }
 
   destroy() {
     this._destroyed = true;
     if (this.spec) { try { this.spec.stop(); } catch (e) { } this.spec = null; }
+    if (this.pzDemo) { try { this.pzDemo.stop(); } catch (e) { } this.pzDemo = null; }
     clearInterval(this._clockTimer);
     clearInterval(this._lanTimer);
     clearTimeout(this._fxT);
