@@ -464,6 +464,37 @@ details.text-code summary { font-size: 13px; color: #7a5a30; padding: 4px; font-
 .pz-summary .ps-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #e8a93a, #f6d98a); }
 .pz-summary .ps-sub { font-size: 11.5px; opacity: .82; margin-top: 8px; }
 
+/* 残局分类卡(独立全屏分类页): 窄屏纵向单列大卡, 宽屏 2 列网格 */
+.pzc-grid { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 6px 0 16px; }
+.pzc-card {
+  display: flex; align-items: center; gap: 13px; text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-left-width: 5px;
+  border-radius: 16px; padding: 14px 14px; box-shadow: 0 1px 6px rgba(90, 60, 25, .08);
+  transition: transform .12s ease; min-height: 76px;
+}
+.pzc-card:active { transform: scale(.97); }
+.pzc-ic {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--chess-font); font-size: 24px; color: #fff; background: var(--pzc-ic, #b5462f);
+}
+.pzc-main { flex: 1; min-width: 0; }
+.pzc-title { font-size: 15.5px; font-weight: 700; color: #3d2c18; }
+.pzc-desc { font-size: 11.5px; color: #8a7350; margin-top: 3px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pzc-meta { display: flex; gap: 12px; margin-top: 7px; align-items: center; }
+.pzc-count { font-size: 13px; font-weight: 800; color: var(--red); }
+.pzc-prog { font-size: 11.5px; color: #2e7d4f; }
+/* 分类视觉区分: 杀局红 / 古谱青 / 例胜橙 / 守和蓝 */
+.pzc-mate { border-left-color: #b5462f; } .pzc-mate .pzc-ic { background: #b5462f; }
+.pzc-classic { border-left-color: #2e7d8c; } .pzc-classic .pzc-ic { background: #2e7d8c; }
+.pzc-win { border-left-color: #c97b1f; } .pzc-win .pzc-ic { background: #c97b1f; }
+.pzc-draw { border-left-color: #3a6bb5; } .pzc-draw .pzc-ic { background: #3a6bb5; }
+/* 宽屏: 分类两列居中 */
+@media (min-width: 900px) {
+  .pzc-grid { grid-template-columns: repeat(2, 1fr); max-width: 880px; margin: 0 auto; }
+}
+
 /* 章节快速跳转 chip 条 */
 .chapter-chips {
   flex: none;

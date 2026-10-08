@@ -100,6 +100,7 @@ function route() {
   if (hash === '#/host') return renderSetupHost();
   if (hash === '#/join') return renderSetupJoin();
   if (hash === '#/puzzles') return renderPuzzles();
+  if (hash.startsWith('#/puzcat')) return renderPuzCat(hash.split('/')[2]);
   if (hash === '#/library') return renderLibrary();
   if (hash.startsWith('#/opening')) return renderOpening(hash.split('/')[2]);
   if (hash === '#/records') return renderRecords();
@@ -413,6 +414,18 @@ function pzTag(pz, done) {
   if (pz.type === 'draw') return '守和 · 执黑';
   return pz.mate + '步杀';
 }
+// 残局分类聚合(动态, 不硬编码局数): 按 PUZZLE_CHAPTERS.test 实时过滤
+function puzzleChapters() {
+  return PUZZLE_CHAPTERS.map(ch => ({ ch, list: PUZZLES.filter(ch.test) })).filter(x => x.list.length);
+}
+// 分类图标配色: 杀局红、古谱青、例胜橙、守和蓝(视觉区分)
+function pzCatCls(ch) {
+  if (ch.id === 'endgame-win') return 'pzc-win';
+  if (ch.id === 'endgame-draw') return 'pzc-draw';
+  if (ch.id === 'classic') return 'pzc-classic';
+  return 'pzc-mate';
+}
+// 独立全屏「残局分类」页: 8 张分类卡
 function renderPuzzles() {
   show('screen-puzzles');
   const root = $('screen-puzzles'); root.innerHTML = '';
@@ -430,29 +443,48 @@ function renderPuzzles() {
     h('div', { class: 'ps-sub' }, '杀局由引擎穷举验证为强制将死; 例胜/守和定式经大师级 AI 对弈核验')
   ]);
 
-  const chapters = PUZZLE_CHAPTERS.map(ch => ({ ch, list: PUZZLES.filter(ch.test) })).filter(x => x.list.length);
-  const chips = h('div', { class: 'chapter-chips' },
-    chapters.map(({ ch, list }) => {
-      const d = list.filter(p => prog[p.id]).length;
-      return h('button', { class: 'chapter-chip', onclick: () => $('ch-' + ch.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
-        [ch.title, h('span', { class: 'cc-done' }, d + '/' + list.length)]);
-    }));
-
-  const body = h('div', { class: 'page-body' });
-  chapters.forEach(({ ch, list }) => {
+  const body = h('div', { class: 'pzc-grid' });
+  puzzleChapters().forEach(({ ch, list }) => {
     const d = list.filter(p => prog[p.id]).length;
-    const grid = h('div', { class: 'puzzle-grid' });
-    list.forEach(pz => {
-      const i = PUZZLES.indexOf(pz);
-      const done = prog[pz.id];
-      grid.appendChild(h('button', { class: 'puzzle-cell' + (done ? ' done' : ''), onclick: () => puzzleChooseMode(i) }, [
-        h('span', { class: 'pz-check' }, '✓'),
-        h('div', { class: 'pz-no' }, String(pz.id).padStart(2, '0')),
-        h('div', { class: 'pz-name' }, pz.name),
-        h('div', { class: 'pz-stars' }, pzTag(pz, done))
-      ]));
-    });
-    body.appendChild(h('div', { class: 'chapter-head', id: 'ch-' + ch.id }, [
+    body.appendChild(h('button', { class: 'pzc-card ' + pzCatCls(ch), onclick: () => go('#/puzcat/' + ch.id) }, [
+      h('div', { class: 'pzc-ic' }, ch.title.slice(0, 1)),
+      h('div', { class: 'pzc-main' }, [
+        h('div', { class: 'pzc-title' }, ch.title),
+        h('div', { class: 'pzc-desc' }, ch.desc),
+        h('div', { class: 'pzc-meta' }, [
+          h('span', { class: 'pzc-count' }, list.length + ' 局'),
+          h('span', { class: 'pzc-prog' }, '已破 ' + d + '/' + list.length)
+        ])
+      ])
+    ]));
+  });
+
+  root.append(topbar('残局分类', '#/home'), summary, body);
+}
+// 某分类的关卡列表页
+function renderPuzCat(catId) {
+  const entry = puzzleChapters().find(x => x.ch.id === catId);
+  if (!entry) return go('#/puzzles');
+  const { ch, list } = entry;
+  show('screen-puzzles');
+  const root = $('screen-puzzles'); root.innerHTML = '';
+  const prog = store.puzzleProgress();
+  const d = list.filter(p => prog[p.id]).length;
+
+  const grid = h('div', { class: 'puzzle-grid' });
+  list.forEach(pz => {
+    const i = PUZZLES.indexOf(pz);
+    const done = prog[pz.id];
+    grid.appendChild(h('button', { class: 'puzzle-cell' + (done ? ' done' : ''), onclick: () => puzzleChooseMode(i) }, [
+      h('span', { class: 'pz-check' }, '✓'),
+      h('div', { class: 'pz-no' }, String(pz.id).padStart(2, '0')),
+      h('div', { class: 'pz-name' }, pz.name),
+      h('div', { class: 'pz-stars' }, pzTag(pz, done))
+    ]));
+  });
+
+  root.append(topbar(ch.title, '#/puzzles', null, '分类'),
+    h('div', { class: 'chapter-head' }, [
       h('div', { style: 'flex:1;min-width:0' }, [
         h('div', { style: 'display:flex;align-items:baseline;gap:8px' }, [
           h('span', { class: 'chapter-title' }, ch.title),
@@ -460,10 +492,8 @@ function renderPuzzles() {
         ]),
         h('div', { class: 'chapter-desc' }, ch.desc)
       ])
-    ]));
-    body.appendChild(grid);
-  });
-  root.append(topbar('残局定式', '#/home'), summary, chips, body);
+    ]),
+    grid);
 }
 // 点关卡: 弹出"我来闯关 / AI演示正解 / 双AI对弈"三模式选择
 function puzzleChooseMode(index) {
