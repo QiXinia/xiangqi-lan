@@ -1,11 +1,20 @@
-# 运行产物 / 评测日志（结论进汇报，不入库）
+# ---- 运行产物 / 评测日志（结论进汇报，不入库）----
 test/logs/
 *.log
-# 并行开发工作副本
+npm-debug.log*
+
+# ---- 并行开发工作副本 / 评测临时脚本 ----
 .work/
 work-*/
-# 系统/临时
-.DS_Store
+test/_*.mjs
+
+# ---- 依赖 / 系统杂项 ----
 node_modules/
+.DS_Store
+Thumbs.db
 *.tmp
 *.bak
+*.swp
+
+# ---- 本地临时下载 / 暂存 ----
+_dl*.html
