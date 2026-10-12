@@ -252,7 +252,7 @@ const PRO_engine = (() => {
  }
 
  // ---------- 搜索用轻量 make/unmake(含增量哈希) ----------
- function smake(state, m) {
+ function smake(state, m, track) {
    const [fx, fy] = m.from, [tx, ty] = m.to;
    const piece = state.board[fy][fx];
    const cap = state.board[ty][tx];
@@ -261,9 +261,30 @@ const PRO_engine = (() => {
    const wasHidden = piece.hidden, orig = piece.orig;
    if (wasHidden) { piece.hidden = false; piece.orig = undefined; }
    state.turn = state.turn === 'r' ? 'b' : 'r';
-   return { piece, cap, fx, fy, tx, ty, wasHidden, orig };
+   const u = { piece, cap, fx, fy, tx, ty, wasHidden, orig };
+   if (track && state._zcnt) {
+     // 重复历史用 Zobrist 数值键增量(O(1) 异或), 避免每分支构造 90 格字符串键拖垮 NPS;
+     // zApply 自逆, sunmake 对同一 u 再作用一次即还原 _zkey。
+     state._zkey = zApply(state._zkey, u);
+     state._sply = (state._sply || 0) + 1;
+     const zk = state._zkey;
+     state._zcnt.set(zk, (state._zcnt.get(zk) || 0) + 1);
+     let a = state._zlen.get(zk); if (!a) { a = []; state._zlen.set(zk, a); }
+     a.push((state._basePly || 0) + state._sply);
+     state.checkLog.push(PRO_isInCheck(state, state.turn) ? state.turn : null);
+     u._zk = zk; u.track = true;
+   }
+   return u;
  }
  function sunmake(state, u) {
+   if (u.track) {
+     state.checkLog.pop();
+     const a = state._zlen.get(u._zk); if (a && a.length) a.pop();
+     const c = (state._zcnt.get(u._zk) || 1) - 1;
+     if (c <= 0) state._zcnt.delete(u._zk); else state._zcnt.set(u._zk, c);
+     state._sply = Math.max(0, (state._sply || 1) - 1);
+     state._zkey = zApply(state._zkey, u); // 自逆还原
+   }
    state.board[u.fy][u.fx] = u.piece;
    state.board[u.ty][u.tx] = u.cap;
    if (u.wasHidden) { u.piece.hidden = true; u.piece.orig = u.orig; }
@@ -288,17 +309,62 @@ const PRO_engine = (() => {
    }
    return k;
  }
- // 走完后若形成第三次重复: 占优着法重罚(避免主动作和), 劣势容忍(劣势谋和), 长将无杀轻罚
- function repetitionPenalty(state, v) {
-   if (!state.posCount || v > MATE - 500) return 0;
-   const cnt = state.posCount.get(ePosKey(state)) || 0;
-   if (cnt < 2) return 0;
-   if (v > 100) return 500;
-   if (v < -100) return 120;
-   return 80;
+ // 搜索内三次重复精确终局(与 engine.recordPosition/cyclePerpetual/evaluateEnd 同口径):
+ // 最近循环周期内某方每一着皆将=长将, 长将方负(±MATE, 攻守对称、与静态子力无关);
+ // 非将军的重复=循环和(0)。连将杀步步逼将、局面不重复, 故不误伤; 守和走闲(不将军重复)不判长将。
+ function proCyclePerpetual(state,key){
+   if(!state._zlen||!state.checkLog) return null;
+   const lens=state._zlen.get(key)||[];
+   if(lens.length<2) return null;
+   const cycPly=lens[lens.length-1]-lens[lens.length-2];
+   if(cycPly<4||cycPly%2!==0) return null;
+   const cyc=state.checkLog.slice(-cycPly), half=cycPly/2;
+   if(cyc.filter(x=>x==='b').length===half) return 'r';
+   if(cyc.filter(x=>x==='r').length===half) return 'b';
+   return null;
+ }
+ function repTerminal(state,ply,key){
+   if(!state._zcnt) return null;
+   const cnt=state._zcnt.get(key)||0;
+   if(cnt<2) return null; // 绝大多数节点(cnt0/1)立即返回, 不做周期切片, 守住 NPS/有效深度
+   const side=proCyclePerpetual(state,key); // 最近周期内某方每步皆将=长将方(与已重复次数无关)
+   if(cnt>=3){
+     if(!side) return 0; // 非每步皆将的重复=循环和
+     return side===state.turn ? -MATE+ply : MATE-ply; // 长将方负
+   }
+   // 将军重复前移预警: 局面第2次出现且周期内某方已每步皆将时给接近胜负强分(留300缓冲,真mate更优),
+   // 使占优方在搜索 horizon 内即放弃长将循环(第3次重复常在深度外看不到)。守和走闲side=null不触发;
+   // 连将杀最短路径局面不重复(cnt恒1)不触发。
+   if(cnt===2 && side){
+     return side===state.turn ? -(MATE-300)+ply : (MATE-300)-ply;
+   }
+   return null;
  }
 
- // ---------- 根层多变性: 仅在"等优着法"之间做加权随机, 不碰搜索内核与残局确定性 ----------
+ // 根层专用·字符串键重复判定: work 副本只注入了根局面的数值键历史, 长将循环里【将要重复的其他局面】
+ // 在数值 _zcnt 中计 cnt=1、漏预警; 根层不追求 NPS, 故每 root move 试走后用 ePosKey(字符串, 与真实
+ // posCount 同键)查真实对局该局面历史出现次数＋完整 checkLog 判长将, 堵住浅搜局长将送负。
+ function rootRep(state, myTurn, rootHist) {
+   const fk = ePosKey(state);
+   const histCnt = rootHist.pc ? (rootHist.pc.get(fk) || 0) : 0;
+   const total = histCnt + 1;                  // 真实历史次数 + 本次试走
+   if (total < 2) return null;
+   const lens = (rootHist.pl && rootHist.pl.get(fk)) ? rootHist.pl.get(fk).slice() : [];
+   lens.push((state._basePly || 0) + 1);       // 本次出现的总半回合数
+   if (lens.length < 2) return null;
+   const cycPly = lens[lens.length - 1] - lens[lens.length - 2];
+   if (cycPly < 4 || cycPly % 2 !== 0) return null;
+   const cyc = state.checkLog.slice(-cycPly), half = cycPly / 2;
+   let side = null;
+   if (cyc.filter(x => x === 'b').length === half) side = 'r';
+   else if (cyc.filter(x => x === 'r').length === half) side = 'b';
+   if (!side) return total >= 3 ? 0 : null;    // 非每步皆将: 第3次=循环和, 第2次不预警
+   // root move 为我方着法、试走后 side 非 null 即我方长将; 若判出对方(不应发生)保守不罚
+   if (side !== myTurn) return null;
+   if (total >= 3) return -MATE + 1;
+   return -(MATE - 300) + 1;
+ }
+
  const NOISE_W = [0, 70, 45, 28, 14, 7];
  const REP_PEN = [0, 15, 13, 11, 9, 8];
 
@@ -390,7 +456,8 @@ const PRO_engine = (() => {
  }
 
  function quiescence(state, alpha, beta, ply, depth, ctx, key, checkLeft) {
-   if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state); // 单调总帧数硬上限: 与 negamax 一致, 任何路径数学封顶
+   if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state);
+   const _rtq = repTerminal(state, ply, key); if (_rtq !== null) return _rtq;
    if (checkLeft === undefined) checkLeft = 16;
    const c = state.turn;
    const inChk = PRO_isInCheck(state, c);
@@ -420,7 +487,7 @@ const PRO_engine = (() => {
    if (inChk && list.length === 0) return -MATE + ply;
    list.sort((a, b) => b.s - a.s);
    for (const { m, givesCheck } of list) {
-     const u = smake(state, m);
+     const u = smake(state, m, true);
      const ext = givesCheck && depth > 2 ? 1 : 0;
      const v = -quiescence(state, -beta, -alpha, ply + 1, depth - 1 + ext, ctx, zApply(key, u), checkLeft);
      sunmake(state, u);
@@ -431,7 +498,8 @@ const PRO_engine = (() => {
  }
 
  function negamax(state, depth, alpha, beta, ply, ctx, key, allowNull) {
-   if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state); // 单调总帧数硬上限72: 正常迭代深度~12远小于此, 连将/吃子链任何路径数学封顶, RangeError不可能
+   if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state);
+   const _rtn = repTerminal(state, ply, key); if (_rtn !== null) return _rtn;
    if ((ctx.nodes++ & 2047) === 0 && Date.now() > ctx.deadline) { ctx.stop = true; }
    if (ctx.stop) return 0;
    const c = state.turn;
@@ -470,8 +538,9 @@ const PRO_engine = (() => {
      }
      if (reduction > 0) {
        state.turn = c === 'r' ? 'b' : 'r';
+       const _ozk = state._zkey; state._zkey = (key ^ ZTURN) >>> 0;
        const v = -negamax(state, depth - reduction, -beta, -beta + 1, ply + 1, ctx, (key ^ ZTURN) >>> 0, false);
-       state.turn = c;
+       state.turn = c; state._zkey = _ozk;
        if (ctx.stop) return 0;
        if (v >= beta) return beta;
      }
@@ -491,7 +560,7 @@ const PRO_engine = (() => {
    let best = -Infinity, bestMove = scored[0].m;
    let idx = 0;
    for (const { m } of scored) {
-     const u = smake(state, m);
+     const u = smake(state, m, true);
      const givesCheck = PRO_isInCheck(state, state.turn);
      const cap = u.cap;
      if (futile && !cap && !givesCheck) { sunmake(state, u); idx++; continue; }
@@ -515,7 +584,7 @@ const PRO_engine = (() => {
      let v = -negamax(state, nd, -beta, -alpha, ply + 1, ctx, zApply(key, u), true);
      if (reduced && !ctx.stop && v > alpha) {
        sunmake(state, u);
-       const u2 = smake(state, m);
+       const u2 = smake(state, m, true);
        v = -negamax(state, depth - 1 + (givesCheck ? 1 : 0), -beta, -alpha, ply + 1, ctx, zApply(key, u2), true);
        sunmake(state, u2);
      } else sunmake(state, u);
@@ -540,7 +609,8 @@ const PRO_engine = (() => {
    }
    if (best === -Infinity) return (c === 'r' ? 1 : -1) * evaluate(state);
    const flag = best <= alpha0 ? 2 : (best >= beta ? 1 : 0);
-   if (Number.isFinite(best)) tt.set(key, { depth, value: best, flag, move: bestMove });
+   // W8: TT 有界——单次搜索内有效, 超限清空防长局内存单调增长(浏览器worker同路径)
+   if (Number.isFinite(best)) { if (tt.size > 400000) tt.clear(); tt.set(key, { depth, value: best, flag, move: bestMove }); }
    return best;
  }
 
@@ -563,7 +633,7 @@ const PRO_engine = (() => {
    _style = STYLE[opts.style] || STYLE.balance;
    return {
      tt: new Map(), killers: {}, hist: { r: new Int32Array(8100), b: new Int32Array(8100) },
-     counter: _F.counter ? new Map() : null, prevLastKey: null, lastMove: null,
+     counter: _F.counter ? new Map() : null, prevLastKey: null, lastMove: null, nodeCap: 2000000,
      hint: opts.hintMove || null,
      useQuie: level >= 3,
      useLmr: level >= 3 && !opts.noLmr && (opts.endgameBonus == null ? true : opts.endgameBonus < 2),
@@ -586,7 +656,19 @@ const PRO_engine = (() => {
      if (bm) return { ...bm, score: 0, depth: 0, nodes: 0, book: true };
    }
    // 根治A: 在深拷贝副本上搜索, 绝不 mutate 调用方原 state(超时中断漏 restore 也只污染将丢弃的副本)
-   state = PRO_createState({ fen: PRO_toFEN(state) });
+   // 仅在入口用一次字符串键抓取根局面重复历史(计数/出现序号/将军日志); 搜索内全程改走 Zobrist 数值键(O(1))
+   const _rootRep = state.posCount ? (() => {
+     const rk = ePosKey(state);
+     return { c: state.posCount.get(rk) || 0,
+              l: state.posLen && state.posLen.get(rk) ? state.posLen.get(rk).slice() : null,
+              cl: state.checkLog ? state.checkLog.slice() : [],
+              pc: state.posCount, pl: state.posLen };
+   })() : { c: 0, l: null, cl: state.checkLog ? state.checkLog.slice() : [], pc: null, pl: null };
+   const work = PRO_createState({ fen: PRO_toFEN(state) });
+   work.checkLog = _rootRep.cl;
+   work._basePly = state.moves ? state.moves.length : 0;
+   work._sply = 0;
+   state = work;
    const egBonus = endgameBonus(state);
    const ctx = makeCtx(level, deadline, { ...opts, endgameBonus: egBonus });
    state._mobility = level >= 4;
@@ -601,6 +683,12 @@ const PRO_engine = (() => {
    const maxDepth = Math.min(14, baseDepth + (level >= 4 ? egBonus : 0));
    let best = moves[0], bestScore = -Infinity, doneDepth = 0;
    const rootKey = boardKey(state);
+   // 搜索路径重复计数(Zobrist 数值键, O(1)): 以根局面历史计数为初值, smake/sunmake 沿 DFS 增减
+   state._zkey = rootKey;
+   state._zcnt = new Map();
+   state._zlen = new Map();
+   if (_rootRep.c > 0) state._zcnt.set(rootKey, _rootRep.c);
+   if (_rootRep.l) state._zlen.set(rootKey, _rootRep.l);
    const timeBudget = deadline - Date.now();
 
    for (let d = 1; d <= maxDepth; d++) {
@@ -614,8 +702,23 @@ const PRO_engine = (() => {
      for (;;) {
        let a = alpha, aborted = false, mi = 0;
        const scored = legalMovesScored(state, state.turn, ctx, 0, (reSearch ? curBest : best), null);
+       // P0-2: 根层长将预警——试走该 root move 后 repTerminal 判我方为长将责任方(cnt==2 预警 / cnt>=3 判负)
+       // 的着法, 根层直接按长将负计、压到最后, 不展开搜索; 非将军循环和(rt=0, 守和走闲)与连将杀(cnt=1,
+       // rt=null)不罚——只堵"我方步步将军送负", 不伤守和谋和与正常将军。仅根层, 不动 negamax 主比较/eval。
+       const myTurn = state.turn;   // 根决策方(试走方), rootRep 据此判我方长将
+       const _rootRepPen = new Map();
+       for (const s0 of scored) {
+         const u0 = smake(state, s0.m, true);
+         // 字符串键口径: work 数值历史只含根局面, 长将循环将要重复的其他局面须查真实 posCount/checkLog
+         const rt0 = rootRep(state, myTurn, _rootRep);
+         sunmake(state, u0);
+         // 阈值 -(MATE-400): 同时纳入 cnt>=3 判负(-MATE) 与 cnt==2 将军重复预警(-(MATE-300)±ply),
+         // 使第2次将军重复即在根层被压、不走到第3次终局; 守和循环(rt=0)/连将杀(cnt1,rt=null)不罚。
+         if (rt0 !== null && rt0 <= -(MATE - 400)) { _rootRepPen.set(s0.m, rt0); s0.s -= 100000; }
+       }
+       scored.sort((a, b) => b.s - a.s);
        for (const { m } of scored) {
-         let u = smake(state, m);
+         let u = smake(state, m, true);
          const givesCheck = PRO_isInCheck(state, state.turn);
          // 记录本手前对手着法(countermove 用); 根节点以对手上一真实着为准
          ctx.lastMove = (state.moves && state.moves.length) ? state.moves[state.moves.length - 1] : null;
@@ -623,21 +726,24 @@ const PRO_engine = (() => {
            ? ctx.lastMove.from[1] * 810 + ctx.lastMove.from[0] * 90 + ctx.lastMove.to[1] * 9 + ctx.lastMove.to[0]
            : null;
          let v;
-         if (mi === 0) {
+         const _forced = _rootRepPen.get(m);
+         if (_forced !== undefined) {
+           // 我方长将责任方: 根层直接采用 repTerminal 的长将负分值, 不展开 negamax
+           sunmake(state, u); u = null; v = _forced;
+         } else if (mi === 0) {
            v = -negamax(state, d - 1 + (givesCheck ? 1 : 0), -beta, -a, 1, ctx, zApply(rootKey, u), true);
          } else {
            v = -negamax(state, d - 1, -a - 1, -a, 1, ctx, zApply(rootKey, u), true);
            if (!ctx.stop && v > a && (beta === Infinity || v < beta)) {
              sunmake(state, u);
-             const u2 = smake(state, m);
+             const u2 = smake(state, m, true);
              v = -negamax(state, d - 1 + (givesCheck ? 1 : 0), -beta, -a, 1, ctx, zApply(rootKey, u2), true);
              u = u2;
            }
          }
-         const rep = repetitionPenalty(state, v);
-         sunmake(state, u);
+         if (u) sunmake(state, u);
          if (ctx.stop) { aborted = true; break; }
-         if (v - rep > curScore || mi === 0) { curScore = v - rep; curBest = m; }
+         if (v > curScore || mi === 0) { curScore = v; curBest = m; }
          if (v > a) a = v;
          mi++;
          if (Date.now() > deadline && d >= 2) { aborted = true; break; }

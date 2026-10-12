@@ -5,7 +5,7 @@
 // 五级难度: 1 入门 / 2 初级 / 3 中级 / 4 高级 / 5 大师
 // ============================================================
 import {
-  pseudoMoves, isInCheck, toFEN, pieceTargets
+  pseudoMoves, isInCheck, toFEN, pieceTargets, fastIsAttacked
 } from './engine.js';
 import { openingBookMove } from './openings.js';
 import { findForcedMate } from './mate-solver.js';
@@ -180,6 +180,41 @@ function evaluate(state) {
   score += guardPen * _style.guard;
   score += crossAtk * 10 * (_style.cross - 1); // 进攻风奖励压境, 稳健风抑制
   if (state._mobility) score += (pseudoCount(state, 'r') - pseudoCount(state, 'b')) * _style.mob;
+  // ===== 残局 mop-up(非对称, 严格门控): 车类强子对孤王残缺卫士的理论必胜残局, 逼王靠边/压缩逃格/破卫/我王助攻 =====
+  {
+    const mc={r:{R:0,C:0,N:0,A:0,B:0},b:{R:0,C:0,N:0,A:0,B:0}};
+    const KK={r:null,b:null}, RV={r:[],b:[]};
+    let np=0;
+    for(let y=0;y<=9;y++)for(let x=0;x<=8;x++){
+      const p=state.board[y][x]; if(!p||p.hidden)continue; np++;
+      if(p.t==='K')KK[p.c]=[x,y];
+      else if(mc[p.c][p.t]!=null){mc[p.c][p.t]++; if(p.t==='R')RV[p.c].push([x,y]);}
+    }
+    if(np<=8){
+      for(const strong of ['r','b']){
+        const weak=strong==='r'?'b':'r';
+        const SS=mc[strong],WW=mc[weak];
+        const wHeavy=WW.R+WW.C+WW.N,wGuard=WW.A+WW.B;
+        // 门控: 强方有车 + 弱方完全无强子(孤王) + 弱方士象不全(<4, 排除单车和士象全); 中局/互缠/炮类和形不生效
+        if(SS.R<1||wHeavy!==0||wGuard>=4)continue;
+        const sg=strong==='r'?1:-1; const wk=KK[weak],sk=KK[strong]; if(!wk||!sk)continue;
+        score+=sg*Math.abs(wk[0]-4)*5;                 // 1) 逼弱王横向靠边
+        const palLo=weak==='r'?7:0,palHi=weak==='r'?9:2; let escapes=0;
+        for(const d of [[1,0],[-1,0],[0,1],[0,-1]]){   // 2) 压缩合法逃格(0即困毙)
+          const nx=wk[0]+d[0],ny=wk[1]+d[1];
+          if(nx<3||nx>5||ny<palLo||ny>palHi)continue;
+          const q=state.board[ny][nx]; if(q&&q.c===weak)continue;
+          if(fastIsAttacked(state,nx,ny,strong))continue; escapes++;
+        }
+        score+=sg*(8-escapes)*5;
+        score+=sg*(4-wGuard)*10;                        // 3) 破卫进度
+        score+=sg*(2-Math.abs(sk[0]-4))*3;              // 4) 我王占中
+        if(sk[0]===wk[0])score+=sg*6;                   //    与弱王同列(对面笑前提)
+        const palMid=weak==='r'?8:1;
+        for(const cr of RV[strong]){const dist=Math.abs(cr[0]-wk[0])+Math.abs(cr[1]-wk[1]);score+=sg*Math.max(0,12-dist)*3;if(cr[0]===wk[0])score+=sg*8;if(Math.abs(cr[1]-palMid)<=1)score+=sg*6;}
+      }
+    }
+  }
   return score;
 }
 function pseudoCount(state, c) {
@@ -200,7 +235,7 @@ function hasHeavy(state, c) {
 }
 
 // ---------- 搜索用轻量 make/unmake(含增量哈希) ----------
-function smake(state, m) {
+function smake(state, m, track) {
   const [fx, fy] = m.from, [tx, ty] = m.to;
   const piece = state.board[fy][fx];
   const cap = state.board[ty][tx];
@@ -209,9 +244,28 @@ function smake(state, m) {
   const wasHidden = piece.hidden, orig = piece.orig;
   if (wasHidden) { piece.hidden = false; piece.orig = undefined; }
   state.turn = state.turn === 'r' ? 'b' : 'r';
-  return { piece, cap, fx, fy, tx, ty, wasHidden, orig };
+  const u = { piece, cap, fx, fy, tx, ty, wasHidden, orig };
+  if (track && state._zcnt) {
+    // 重复历史用 Zobrist 数值键增量(O(1)); zApply 自逆, sunmake 对同一 u 再作用即还原
+    state._zkey = zApply(state._zkey, u);
+    state._sply = (state._sply||0)+1;
+    const zk = state._zkey;
+    state._zcnt.set(zk,(state._zcnt.get(zk)||0)+1);
+    let a=state._zlen.get(zk); if(!a){a=[];state._zlen.set(zk,a);}
+    a.push((state._basePly||0)+state._sply);
+    state.checkLog.push(isInCheck(state,state.turn)?state.turn:null);
+    u._zk=zk; u.track=true;
+  }
+  return u;
 }
 function sunmake(state, u) {
+  if (u.track) {
+    state.checkLog.pop();
+    const a=state._zlen.get(u._zk); if(a&&a.length)a.pop();
+    const c=(state._zcnt.get(u._zk)||1)-1; if(c<=0)state._zcnt.delete(u._zk); else state._zcnt.set(u._zk,c);
+    state._sply=Math.max(0,(state._sply||1)-1);
+    state._zkey=zApply(state._zkey,u); // 自逆还原
+  }
   state.board[u.fy][u.fx] = u.piece;
   state.board[u.ty][u.tx] = u.cap;
   if (u.wasHidden) { u.piece.hidden = true; u.piece.orig = u.orig; }
@@ -236,14 +290,35 @@ function ePosKey(state) {
   }
   return k;
 }
-// 走完后若形成第三次重复: 占优着法重罚(避免主动作和), 劣势容忍(劣势谋和), 长将无杀轻罚
-function repetitionPenalty(state, v) {
-  if (!state.posCount || v > MATE - 500) return 0;
-  const cnt = state.posCount.get(ePosKey(state)) || 0;
-  if (cnt < 2) return 0;
-  if (v > 100) return 500;
-  if (v < -100) return 120;
-  return 80;
+// 搜索内三次重复精确终局(与 engine.recordPosition/cyclePerpetual/evaluateEnd 同口径):
+// 周期内某方每步皆将=长将方负(±MATE,攻守对称、与静态子力无关); 非将军重复=循环和(0)。
+// 连将杀局面不重复不误伤; 守和走闲(不将军重复)不判长将。
+function cyclePerpetualSearch(state,key){
+  if(!state._zlen||!state.checkLog) return null;
+  const lens=state._zlen.get(key)||[];
+  if(lens.length<2) return null;
+  const cycPly=lens[lens.length-1]-lens[lens.length-2];
+  if(cycPly<4||cycPly%2!==0) return null;
+  const cyc=state.checkLog.slice(-cycPly), half=cycPly/2;
+  if(cyc.filter(x=>x==='b').length===half) return 'r';
+  if(cyc.filter(x=>x==='r').length===half) return 'b';
+  return null;
+}
+function repTerminal(state,ply,key){
+  if(!state._zcnt) return null;
+  const cnt=state._zcnt.get(key)||0;
+  if(cnt<2) return null; // 绝大多数节点(cnt0/1)立即返回, 不做周期切片, 守住 NPS
+  const side=cyclePerpetualSearch(state,key); // 最近周期内某方每步皆将=长将方
+  if(cnt>=3){
+    if(!side) return 0; // 非每步皆将的重复=循环和
+    return side===state.turn ? -MATE+ply : MATE-ply; // 长将方负
+  }
+  // 将军重复前移预警(同 pro): 第2次出现且周期内某方每步皆将即给接近胜负强分(留300缓冲,真mate更优),
+   // 使占优方在搜索 horizon 内放弃长将; 守和走闲不触发, 连将杀不重复不触发。
+  if(cnt===2 && side){
+    return side===state.turn ? -(MATE-300)+ply : (MATE-300)-ply;
+  }
+  return null;
 }
 
 // ---------- 根层多变性: 仅在"等优着法"之间做加权随机, 不碰搜索内核与残局确定性 ----------
@@ -300,7 +375,7 @@ function pickDiverseRootMove(state, bestMove, bestScore, doneDepth, ctx, deadlin
   ctx.stop = false;
   for (const { m } of list) {
     if (Date.now() > deadline || ctx.stop) return null; // 时间不够 → 回退确定性
-    const u = smake(state, m);
+    const u = smake(state, m, true);
     const givesCheck = isInCheck(state, state.turn);
     // 紧上界探根分: child 窗 (-Inf,-floor)。返回 v>floor ⟹ 为精确根分且落在等优竞争带内;
     // v<=floor ⟹ 该着确实差于 floor(超出 W), 不计入。
@@ -343,16 +418,22 @@ function legalMovesScored(state, c, ctx, ply, ttMove, killers) {
   return arr;
 }
 
-function quiescence(state, alpha, beta, ply, depth, ctx, key) {
-  if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state); // 统一单调递归封顶: 防极端长连将深路径栈溢出(正常ply<30不触发)
+function quiescence(state, alpha, beta, ply, depth, ctx, key, checkLeft) {
+  if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state);
+  const _rtq = repTerminal(state, ply, key); if (_rtq !== null) return _rtq;
+  if (checkLeft === undefined) checkLeft = 16;
   const c = state.turn;
   const inChk = isInCheck(state, c);
   if (!inChk) {
     const stand = (c === 'r' ? 1 : -1) * evaluate(state);
     if (stand >= beta) return beta;
     if (stand > alpha) alpha = stand;
+    if (depth <= 0) return alpha;
+  } else if (checkLeft <= 0) {
+    return (c === 'r' ? 1 : -1) * evaluate(state);
+  } else {
+    checkLeft--;
   }
-  if (depth <= 0) return alpha;
   const list = [];
   for (const m of pseudoMoves(state, c)) {
     const target = state.board[m.to[1]][m.to[0]];
@@ -368,9 +449,9 @@ function quiescence(state, alpha, beta, ply, depth, ctx, key) {
   if (inChk && list.length === 0) return -MATE + ply; // 被将军且无着法=将杀/困毙
   list.sort((a, b) => b.s - a.s);
   for (const { m, givesCheck } of list) {
-    const u = smake(state, m);
+    const u = smake(state, m, true);
     const ext = givesCheck && depth > 2 ? 1 : 0;
-    const v = -quiescence(state, -beta, -alpha, ply + 1, depth - 1 + ext, ctx, zApply(key, u));
+    const v = -quiescence(state, -beta, -alpha, ply + 1, depth - 1 + ext, ctx, zApply(key, u), checkLeft);
     sunmake(state, u);
     if (v >= beta) return beta;
     if (v > alpha) alpha = v;
@@ -379,7 +460,8 @@ function quiescence(state, alpha, beta, ply, depth, ctx, key) {
 }
 
 function negamax(state, depth, alpha, beta, ply, ctx, key, allowNull) {
-  if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state); // 统一单调递归封顶: 防极端长连将深路径栈溢出(正常ply<30不触发)
+  if (ply > 72) return (state.turn === 'r' ? 1 : -1) * evaluate(state);
+  const _rtn = repTerminal(state, ply, key); if (_rtn !== null) return _rtn;
   if ((ctx.nodes++ & 2047) === 0 && Date.now() > ctx.deadline) { ctx.stop = true; }
   if (ctx.stop) return 0;
   const c = state.turn;
@@ -405,8 +487,10 @@ function negamax(state, depth, alpha, beta, ply, ctx, key, allowNull) {
   // 空着裁剪(被将军/揭棋/纯兵残局/根附近/全窗节点不用; 全窗 beta=Inf 会使零窗退化)
   if (allowNull && !inChk && !state.jieqi && depth >= 3 && hasHeavy(state, c) && ply >= 1 && Number.isFinite(beta)) {
     state.turn = c === 'r' ? 'b' : 'r'; // 让一手: 轮到对方
+    const _ozk = state._zkey; state._zkey = (key ^ ZTURN) >>> 0;
     const v = -negamax(state, depth - 3, -beta, -beta + 1, ply + 1, ctx, (key ^ ZTURN) >>> 0, false);
     state.turn = c;                    // 恢复行棋方
+    state._zkey = _ozk;
     if (ctx.stop) return 0;
     if (v >= beta) return beta;
   }
@@ -426,7 +510,7 @@ function negamax(state, depth, alpha, beta, ply, ctx, key, allowNull) {
   let best = -Infinity, bestMove = scored[0].m;
   let idx = 0;
   for (const { m } of scored) {
-    const u = smake(state, m);
+    const u = smake(state, m, true);
     const givesCheck = isInCheck(state, state.turn);
     const cap = u.cap;
     // Futility 跳过安静着(不吃子、不将军)
@@ -444,7 +528,7 @@ function negamax(state, depth, alpha, beta, ply, ctx, key, allowNull) {
     if (reduced && !ctx.stop && v > alpha) {
       // 减搜异常: 恢复完整深度重搜(u2 为局面恢复后对同一着法的重做, cap 一致)
       sunmake(state, u);
-      const u2 = smake(state, m);
+      const u2 = smake(state, m, true);
       v = -negamax(state, depth - 1 + (givesCheck ? 1 : 0), -beta, -alpha, ply + 1, ctx, zApply(key, u2), true);
       sunmake(state, u2);
     } else sunmake(state, u);
@@ -529,6 +613,13 @@ export function searchBestMove(state, opts = {}) {
   const maxDepth = Math.min(14, baseDepth + (level >= 4 ? egBonus : 0));
   let best = moves[0], bestScore = -Infinity, doneDepth = 0;
   const rootKey = boardKey(state);
+  // 搜索路径重复计数(Zobrist 数值键,O(1)): 在真实 state 上挂临时结构, 以根局面历史计数为初值,
+  // smake/sunmake 沿 DFS 严格增减、净 0 回退, 不改动 engine 真实 posCount/posLen/checkLog。
+  state._zkey = rootKey; state._zcnt = new Map(); state._zlen = new Map();
+  state._basePly = state.moves ? state.moves.length : 0; state._sply = 0;
+  { const rk = ePosKey(state);
+    const c0 = (state.posCount && state.posCount.get(rk)) || 0; if (c0 > 0) state._zcnt.set(rootKey, c0);
+    const l0 = state.posLen && state.posLen.get(rk); if (l0) state._zlen.set(rootKey, l0.slice()); }
 
   for (let d = 1; d <= maxDepth; d++) {
     let curBest = moves[0], curScore = -Infinity;
@@ -543,7 +634,7 @@ export function searchBestMove(state, opts = {}) {
       let a = alpha, aborted = false, mi = 0;
       const scored = legalMovesScored(state, state.turn, ctx, 0, (reSearch ? curBest : best), null);
       for (const { m } of scored) {
-        let u = smake(state, m);
+        let u = smake(state, m, true);
         const givesCheck = isInCheck(state, state.turn);
         let v;
         if (mi === 0) {
@@ -553,15 +644,14 @@ export function searchBestMove(state, opts = {}) {
           v = -negamax(state, d - 1, -a - 1, -a, 1, ctx, zApply(rootKey, u), true);
           if (!ctx.stop && v > a && (beta === Infinity || v < beta)) {
             sunmake(state, u);
-            const u2 = smake(state, m);
+            const u2 = smake(state, m, true);
             v = -negamax(state, d - 1 + (givesCheck ? 1 : 0), -beta, -a, 1, ctx, zApply(rootKey, u2), true);
             u = u2;
           }
         }
-        const rep = repetitionPenalty(state, v);
         sunmake(state, u);
         if (ctx.stop) { aborted = true; break; }
-        if (v - rep > curScore || mi === 0) { curScore = v - rep; curBest = m; }
+        if (v > curScore || mi === 0) { curScore = v; curBest = m; }
         if (v > a) a = v;
         mi++;
         if (Date.now() > deadline && d >= 2) { aborted = true; break; }
@@ -605,7 +695,12 @@ export function scoreMove(state, from, to, opts = {}) {
   if (!m) return { score: -MATE, depth: 0, nodes: 0, illegal: true };
   const depth = opts.depth || 6;
   const rootKey = boardKey(state);
-  const u = smake(state, m.m);
+  state._zkey = rootKey; state._zcnt = new Map(); state._zlen = new Map();
+  state._basePly = state.moves ? state.moves.length : 0; state._sply = 0;
+  { const rk = ePosKey(state);
+    const c0 = (state.posCount && state.posCount.get(rk)) || 0; if (c0 > 0) state._zcnt.set(rootKey, c0);
+    const l0 = state.posLen && state.posLen.get(rk); if (l0) state._zlen.set(rootKey, l0.slice()); }
+  const u = smake(state, m.m, true);
   const givesCheck = isInCheck(state, state.turn);
   const v = -negamax(state, depth - 1 + (givesCheck ? 1 : 0), -Infinity, Infinity, 1, ctx, zApply(rootKey, u), true);
   sunmake(state, u);
